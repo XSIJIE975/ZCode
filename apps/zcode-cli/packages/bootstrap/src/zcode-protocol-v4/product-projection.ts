@@ -2374,9 +2374,10 @@ export class ProductProjection {
       case "model_first_content":
       case "model_first_text":
       // 准入等待的两端是 runtime 观测，不是 UI 状态：
-      // 不映射成重试/等待标签。
+      // 不映射成重试/等待标签。签名层观测同理，只进开发者工具面板。
       case "model_request_queued":
       case "model_request_admitted":
+      case "model_client_signing":
         return [];
     }
   }

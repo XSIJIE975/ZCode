@@ -102,7 +102,11 @@ fetch(input, init)
 5. `apps/zcode-cli/packages/bootstrap/src/model-config.ts`：`createRuntimeAiSdkModelExecutionConfig` 产出 `codingPlanSignature`（configUrl 跟随 `ZCODE_BASE_URL`/`ZCODE_ENDPOINT_ORIGIN`，默认 `https://zcode.z.ai`；headers 复用 CLI 来源头）。
 6. `docs/specs/client-request-signing.md`：行为 spec（状态所有者、事件顺序、验收场景）。
 
-有意收敛的差异：发行版还会把观测经 statusSink 发布为 `model_client_signing` 状态事件；该事件类型横跨 contracts/bootstrap/core/telemetry/tui/shared 的协议面（约 7 个包的 exhaustive 消费点），本分支只保留 logger 事件与 observation store，行为不受影响，待需要接入桌面端观测面板时再扩展协议。
+`model_client_signing` 状态事件已全链路补齐（第二笔提交）：contracts 事件类型与 JSON schema、
+adapters runner 发布（generate/stream 收口时）、shared 调试状态映射与 session-debug schema、
+core 日志、v4 facts/projection 与 TUI 的显式忽略、桌面端开发者工具面板网络区展示
+（签名结论 + 原因 + 轮次，`data-testid="developer-tools-signing-kind"`）、
+中英文案。开启方式：localStorage `zcode:developer-tools:enabled=1` 后从侧边栏「+」打开。
 
 ## 五、验证
 

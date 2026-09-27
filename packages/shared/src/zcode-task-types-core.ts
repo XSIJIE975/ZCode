@@ -784,7 +784,17 @@ export type ZCodeTaskNetworkDebugStatusType =
   | "model_request_completed"
   | "model_request_failed"
   | "model_retry_scheduled"
-  | "model_stream_stalled";
+  | "model_stream_stalled"
+  | "model_client_signing";
+/** 客户端签名观测结论（官方 Coding Plan 请求在签名层的结果），只含归因与结论，不含签名材料。 */
+export interface ZCodeTaskNetworkDebugStatusClientSigning {
+  kind: string;
+  reason?: string;
+  signedAttempt?: number;
+  errorKind?: string;
+  httpStatus?: number;
+  businessCode?: number | string;
+}
 /** Agent 模型网络状态调试事件；只携带元信息和脱敏 header，不携带 response body/data。 */
 export interface ZCodeTaskNetworkDebugStatus {
   type: "task_network_debug_status";
@@ -814,6 +824,7 @@ export interface ZCodeTaskNetworkDebugStatus {
   reason?: string;
   message?: string;
   timestamp?: string;
+  clientSigning?: ZCodeTaskNetworkDebugStatusClientSigning;
   requestHeaders: Record<string, string>;
   responseHeaders: Record<string, string>;
   requestHeaderCount: number;

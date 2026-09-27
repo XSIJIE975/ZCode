@@ -69,6 +69,7 @@ import {
   publishModelStatus,
   publishModelTelemetryMilestone,
 } from "./runner-status.js";
+import { publishClientSigningObservations } from "./runner-client-signing-status.js";
 import { StreamingToolCallAssembler } from "./streaming-tool-call-assembler.js";
 import type { ResolvedAiSdkModelRetryOptions } from "./retry-policy.js";
 import type {
@@ -615,6 +616,15 @@ export async function* runStreamText(input: {
           statusPublishOptions(input, admission),
         );
         terminalStatusPublished = true;
+        // 流式请求收口后补发签名层观测，与本次请求按 requestId 关联。
+        await publishClientSigningObservations({
+          attempt,
+          logger: input.logger,
+          request: attemptRequest,
+          resolved,
+          statusContext,
+          statusSink: input.statusSink,
+        });
       }
       if (recordModelIO && options) {
         await recordStreamTextDebug({
@@ -764,6 +774,15 @@ export async function* runStreamText(input: {
         },
       );
       terminalStatusPublished = true;
+      // 失败请求同样收口签名观测：verify_rejected / handshake_failed 等只在这里可见。
+      await publishClientSigningObservations({
+        attempt,
+        logger: input.logger,
+        request: attemptRequest,
+        resolved,
+        statusContext,
+        statusSink: input.statusSink,
+      });
 
       if (retryWithRepairedHistory) {
         await publishRetryScheduledStatus(

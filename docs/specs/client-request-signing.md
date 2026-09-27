@@ -79,6 +79,10 @@ fetch(input, init)
 
 - logger 事件：`model.client_signing.signed_sent / unsigned_sent / handshake_failed / verify_rejected / bypass_entered / request_failed_closed / feature_gate`。
 - `ClientSigningObservationStore` 以 `x-request-id` 归因每条观测，随 resolved model 暴露。
+- runner 在每次尝试收口（completed / failed）后把观测发布为 `model_client_signing` 状态事件
+  （只投进程级 statusSink）：经 core 记为 SessionEvent 后进入会话调试快照，
+  最终在桌面端「开发者工具」面板网络区按请求展示签名结论（已签名 / 未签名(原因) / 验签被拒等）。
+  v4 telemetry fact、TUI 网络列表与对话投影显式忽略该事件类型。
 
 ## 验收场景
 
@@ -89,3 +93,5 @@ fetch(input, init)
 5. start-plan/off-peak + 官方域：不签名，观测记录 `access_mode`。
 6. 第三方 provider（非官方域）：不包装 signer，行为与现状一致。
 7. `apiKey` 不是 `id.secret` 形态：握手段抛 `invalid-config`（fail-closed）。
+8. 桌面端开启开发者工具面板（localStorage `zcode:developer-tools:enabled=1`）后，
+   Coding Plan 请求在网络区伴随出现「客户端签名」条目：正常链路显示「已签名发送」。

@@ -57,7 +57,28 @@ function networkStatusLabelId(statusType: SessionDebugNetworkEntry["statusType"]
       return "developerTools.network.status.retry";
     case "model_stream_stalled":
       return "developerTools.network.status.stalled";
+    case "model_client_signing":
+      return "developerTools.network.status.clientSigning";
   }
+}
+
+function signingKindLabelId(kind: string): string {
+  switch (kind) {
+    case "signed_sent":
+    case "unsigned_sent":
+    case "handshake_failed":
+    case "verify_rejected":
+    case "bypass_entered":
+    case "request_failed_closed":
+      return `developerTools.network.signing.kind.${kind}`;
+    default:
+      return "developerTools.network.signing";
+  }
+}
+
+/** signed_sent 是唯一的全链路成功态；其余（未签名/握手失败/验签被拒/降级）都提示需要关注。 */
+function isSigningAttentionKind(kind: string): boolean {
+  return kind !== "signed_sent";
 }
 
 function HeaderDetails({
@@ -269,6 +290,48 @@ export function DeveloperToolsPane({
                       <span className="min-w-0 truncate font-mono text-foreground">
                         {entry.providerId ?? entry.providerKind ?? "-"}
                       </span>
+                      {entry.clientSigning ? (
+                        <>
+                          <span>
+                            {intl.formatMessage({ id: "developerTools.network.signing" })}
+                          </span>
+                          <span
+                            className="min-w-0 truncate font-mono"
+                            data-testid="developer-tools-signing-kind"
+                            data-signing-attention={
+                              isSigningAttentionKind(entry.clientSigning.kind) ? "true" : "false"
+                            }
+                          >
+                            {intl.formatMessage({
+                              id: signingKindLabelId(entry.clientSigning.kind),
+                            })}
+                          </span>
+                          {entry.clientSigning.reason ? (
+                            <>
+                              <span>
+                                {intl.formatMessage({
+                                  id: "developerTools.network.signing.reason",
+                                })}
+                              </span>
+                              <span className="min-w-0 truncate font-mono text-foreground">
+                                {entry.clientSigning.reason}
+                              </span>
+                            </>
+                          ) : null}
+                          {entry.clientSigning.signedAttempt !== undefined ? (
+                            <>
+                              <span>
+                                {intl.formatMessage({
+                                  id: "developerTools.network.signing.attempt",
+                                })}
+                              </span>
+                              <span className="font-mono text-foreground">
+                                {entry.clientSigning.signedAttempt}
+                              </span>
+                            </>
+                          ) : null}
+                        </>
+                      ) : null}
                       <span>{intl.formatMessage({ id: "developerTools.network.attempt" })}</span>
                       <span className="font-mono text-foreground">
                         {entry.attempt !== undefined && entry.maxAttempts !== undefined

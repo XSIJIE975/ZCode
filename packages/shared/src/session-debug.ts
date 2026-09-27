@@ -25,6 +25,16 @@ export const sessionDebugRoundSchema = z
     tokensPerSecond: count.nullable(),
   })
   .strict();
+const debugClientSigningSchema = z
+  .object({
+    kind: z.string().min(1),
+    reason: z.string().optional(),
+    signedAttempt: count.optional(),
+    errorKind: z.string().optional(),
+    httpStatus: count.optional(),
+    businessCode: z.union([count, z.string()]).optional(),
+  })
+  .strict();
 export const sessionDebugNetworkEntrySchema = z
   .object({
     eventKey: z.string(),
@@ -36,6 +46,7 @@ export const sessionDebugNetworkEntrySchema = z
       "model_request_failed",
       "model_retry_scheduled",
       "model_stream_stalled",
+      "model_client_signing",
     ]),
     requestId: z.string().optional(),
     providerId: z.string().optional(),
@@ -57,6 +68,7 @@ export const sessionDebugNetworkEntrySchema = z
     timeoutMs: count.optional(),
     reason: z.string().optional(),
     message: z.string().optional(),
+    clientSigning: debugClientSigningSchema.optional(),
     requestHeaders: z.record(z.string(), z.string()),
     responseHeaders: z.record(z.string(), z.string()),
     requestHeaderCount: count,

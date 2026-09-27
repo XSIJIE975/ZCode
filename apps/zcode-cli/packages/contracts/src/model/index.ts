@@ -258,6 +258,33 @@ export interface ModelStreamStalledStatusEvent extends ModelNetworkStatusBase {
   message: string;
 }
 
+export type ModelClientSigningObservationKind =
+  | "signed_sent"
+  | "unsigned_sent"
+  | "handshake_failed"
+  | "verify_rejected"
+  | "bypass_entered"
+  | "request_failed_closed";
+
+/**
+ * 客户端签名观测结论：官方 Coding Plan 请求在签名层的结果。
+ * 只携带归因与结论（kind / reason / 轮次），不携带任何签名材料；
+ * 与该请求的 started/completed/failed 事件按 requestId 关联。
+ */
+export interface ModelClientSigningObservationStatus {
+  kind: ModelClientSigningObservationKind;
+  reason?: string;
+  signedAttempt?: number;
+  errorKind?: string;
+  httpStatus?: number;
+  businessCode?: number | string;
+}
+
+export interface ModelClientSigningStatusEvent extends ModelNetworkStatusBase {
+  type: "model_client_signing";
+  clientSigning: ModelClientSigningObservationStatus;
+}
+
 /**
  * 仅供实时观测 Sink 消费的 Provider 里程碑。它们不进入 SessionEvent/回放协议，
  * 避免为了 Trace 事件扩大产品状态面。
@@ -275,6 +302,7 @@ export type ModelNetworkStatusEvent =
   | ModelRequestFailedStatusEvent
   | ModelRetryScheduledStatusEvent
   | ModelStreamStalledStatusEvent
+  | ModelClientSigningStatusEvent
   | ModelTelemetryMilestoneStatusEvent;
 
 export interface ModelStatusSink {
@@ -1008,6 +1036,7 @@ export const modelNetworkStatusEventJsonSchema = {
         "model_request_failed",
         "model_retry_scheduled",
         "model_stream_stalled",
+        "model_client_signing",
       ],
     },
     timestamp: { type: "string", minLength: 1 },
@@ -1052,6 +1081,28 @@ export const modelNetworkStatusEventJsonSchema = {
       },
     },
     timeoutMs: { type: "number", minimum: 0 },
+    clientSigning: {
+      type: "object",
+      required: ["kind"],
+      additionalProperties: false,
+      properties: {
+        kind: {
+          enum: [
+            "signed_sent",
+            "unsigned_sent",
+            "handshake_failed",
+            "verify_rejected",
+            "bypass_entered",
+            "request_failed_closed",
+          ],
+        },
+        reason: { type: "string" },
+        signedAttempt: { type: "number", minimum: 1 },
+        errorKind: { type: "string" },
+        httpStatus: { type: "number" },
+        businessCode: { type: ["number", "string"] },
+      },
+    },
   },
 } satisfies JsonSchema;
 

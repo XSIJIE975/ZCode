@@ -44,6 +44,7 @@ import {
   createStatusContext,
   publishModelStatus,
 } from "./runner-status.js";
+import { publishClientSigningObservations } from "./runner-client-signing-status.js";
 import type { EnvRecord } from "./model-execution.js";
 import type { ResolvedAiSdkModelRetryOptions } from "./retry-policy.js";
 import type {
@@ -317,6 +318,15 @@ export async function runGenerateText(input: {
         },
         statusPublishOptions(input, admission),
       );
+      // 请求收口后补发签名层观测（signed_sent / unsigned_sent 等），与本次请求按 requestId 关联。
+      await publishClientSigningObservations({
+        attempt,
+        logger: input.logger,
+        request: attemptRequest,
+        resolved,
+        statusContext,
+        statusSink: input.statusSink,
+      });
 
       return {
         text,
@@ -427,6 +437,15 @@ export async function runGenerateText(input: {
           failureError: unwrapRetryError(error),
         },
       );
+      // 失败请求同样收口签名观测：verify_rejected / handshake_failed 等只在这里可见。
+      await publishClientSigningObservations({
+        attempt,
+        logger: input.logger,
+        request: attemptRequest,
+        resolved,
+        statusContext,
+        statusSink: input.statusSink,
+      });
 
       if (!canRetry) {
         logRetryDelayDecision({

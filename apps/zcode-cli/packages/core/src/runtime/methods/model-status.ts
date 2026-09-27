@@ -126,6 +126,16 @@ export function logModelNetworkStatus(
       });
       return;
 
+    case "model_client_signing":
+      this.logger?.debug("Model client signing observed", {
+        ...baseContext,
+        clientSigning: statusEvent.clientSigning,
+        event: `model.client_signing.${statusEvent.clientSigning.kind}`,
+        module: "core.runtime",
+        status: "completed",
+      });
+      return;
+
     case "model_stream_stalled":
       this.logger?.warn("Model network stream stalled", {
         ...baseContext,

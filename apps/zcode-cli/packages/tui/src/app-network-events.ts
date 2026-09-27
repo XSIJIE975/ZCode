@@ -55,6 +55,8 @@ export function applyModelNetworkEvent(
   const type = stringField(payload, "type");
   const requestId = stringField(payload, "requestId");
   if (!type || !requestId) return;
+  // 签名层观测不是网络请求生命周期，进列表会产生永不完成的 pending 项。
+  if (type === "model_client_signing") return;
 
   const target = modelNetworkRequestTargetFromPayload(payload);
   const now = new Date().toISOString();

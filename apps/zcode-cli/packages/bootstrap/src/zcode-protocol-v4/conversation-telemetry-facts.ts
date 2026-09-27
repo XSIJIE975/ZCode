@@ -346,7 +346,12 @@ export class ConversationTelemetryFactNormalizer {
         const payload = event.payload as ModelNetworkStatusPayload;
         // 准入等待的两端不是 provider 请求状态：
         // fact 的 status 枚举不收它们，显式跳过而不是让 schema.parse 抛出。
-        if (payload.type === "model_request_queued" || payload.type === "model_request_admitted") {
+        // model_client_signing 是签名层观测（开发者工具面板网络区消费），同样不进 telemetry fact。
+        if (
+          payload.type === "model_request_queued" ||
+          payload.type === "model_request_admitted" ||
+          payload.type === "model_client_signing"
+        ) {
           return null;
         }
         const modelProvider = String(payload.providerId);

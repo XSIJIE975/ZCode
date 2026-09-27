@@ -19,7 +19,8 @@ type PlanUsageRequestStatus =
   | "completed"
   | "failed"
   | "retry_scheduled"
-  | "stream_stalled";
+  | "stream_stalled"
+  | "client_signing";
 
 type ArmsReporter = Pick<IPlatformService, "reportArmsCustomEvent">;
 
@@ -70,6 +71,9 @@ function networkRequestStatus(
       return "retry_scheduled";
     case "model_stream_stalled":
       return "stream_stalled";
+    // 签名观测当前不进 v4 telemetry fact（facts 侧显式跳过），这里只为穷尽性保底。
+    case "model_client_signing":
+      return "client_signing";
   }
 }
 
