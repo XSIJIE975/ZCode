@@ -3537,6 +3537,14 @@ const enUS: Record<string, string> = {
   "sidebar.usage.plan.resetAt": "Resets {time}",
   "sidebar.usage.plan.modelUsage": "Model usage",
   "sidebar.usage.plan.openStats": "Usage stats",
+  "sidebar.signing.signed": "Signed",
+  "sidebar.signing.unsigned": "Unsigned",
+  "sidebar.signing.tooltip.signed":
+    "Coding Plan requests carry the client signature; quota is billed with the promotional coefficient",
+  "sidebar.signing.tooltip.unsigned":
+    "Coding Plan request was not signed: {reason} (no promotional coefficient for this request)",
+  "sidebar.signing.tooltip.detail":
+    "Details: open Developer Tools from the sidebar “+” menu, Network section",
   "sidebar.usage.plan.refresh": "Refresh quota",
   "sidebar.usage.plan.refreshing": "Updating quota",
   "sidebar.usage.plan.updateFailed": "Possible network issue",
