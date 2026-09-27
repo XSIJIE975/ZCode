@@ -1605,6 +1605,7 @@ const enUS: Record<string, string> = {
   "workspace.startFromScratch": "Start from scratch",
   "workspace.openFolder": "Open folder",
   "workspace.openPluginsSettings": "Plugin Marketplace",
+  "workspace.openDeveloperTools": "Developer tools",
   "workspace.backToWorkspace": "Back to workspace",
   "workspace.noActiveForNewTask": "There is no available workspace yet. Open a workspace first.",
   "workspace.wslUncPrompt.title": "Open this through WSL remote connection?",
@@ -3544,7 +3545,7 @@ const enUS: Record<string, string> = {
   "sidebar.signing.tooltip.unsigned":
     "Coding Plan request was not signed: {reason} (no promotional coefficient for this request)",
   "sidebar.signing.tooltip.detail":
-    "Details: open Developer Tools from the sidebar “+” menu, Network section",
+    "Details: open Developer Tools from the left sidebar menu, Network section",
   "sidebar.usage.plan.refresh": "Refresh quota",
   "sidebar.usage.plan.refreshing": "Updating quota",
   "sidebar.usage.plan.updateFailed": "Possible network issue",

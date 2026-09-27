@@ -93,7 +93,8 @@ fetch(input, init)
 5. start-plan/off-peak + 官方域：不签名，观测记录 `access_mode`。
 6. 第三方 provider（非官方域）：不包装 signer，行为与现状一致。
 7. `apiKey` 不是 `id.secret` 形态：握手段抛 `invalid-config`（fail-closed）。
-8. 桌面端侧边栏「+」菜单的开发者工具入口默认显示（显式写入
+8. 桌面端左侧一级菜单新增「开发者工具」按钮（插件市场下方，`data-testid="developer-tools-sidebar-open"`），
+   点击直接打开右侧面板的开发者工具 tab；右侧「+」菜单入口默认显示（显式写入
    `zcode:developer-tools:enabled=0/false/off/no` 才隐藏）；Coding Plan 请求在网络区
    伴随出现「客户端签名」条目：正常链路显示「已签名发送」。
 9. 侧边栏底部用户名旁常驻「签名状态」徽标：活跃会话产生签名观测后显示——

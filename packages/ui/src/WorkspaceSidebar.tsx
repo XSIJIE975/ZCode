@@ -14,6 +14,7 @@ import {
 import {
   Archive,
   Blocks,
+  Bug,
   CalendarClock,
   Clock3,
   Cloud,
@@ -259,6 +260,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   onOpenCommandCenter,
   onOpenAutomations,
   onOpenPluginStore,
+  onOpenDeveloperTools,
   automationsActive = false,
   pluginStoreActive = false,
   onFileTreeOpenChange,
@@ -311,6 +313,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   onOpenCommandCenter: () => void;
   onOpenAutomations?: () => void;
   onOpenPluginStore?: () => void;
+  /** 打开右侧面板的开发者工具 tab（客户端签名等诊断明细的常驻入口）。 */
+  onOpenDeveloperTools?: () => void;
   automationsActive?: boolean;
   pluginStoreActive?: boolean;
   onFileTreeOpenChange?: (open: boolean) => void;
@@ -752,6 +756,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   const handleOpenPluginStoreMain = useCallback(() => {
     onOpenPluginStore?.();
   }, [onOpenPluginStore]);
+  const handleOpenDeveloperToolsMain = useCallback(() => {
+    onOpenDeveloperTools?.();
+  }, [onOpenDeveloperTools]);
   const handleOpenAutomationsMain = useCallback(() => {
     onOpenAutomations?.();
   }, [onOpenAutomations]);
@@ -1345,6 +1352,17 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
             >
               <Blocks className="size-4" />
               {intl.formatMessage({ id: "workspace.openPluginsSettings" })}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={handleOpenDeveloperToolsMain}
+              data-icon="inline-start"
+              data-testid="developer-tools-sidebar-open"
+              size="lg"
+              className="w-full justify-start gap-2 text-foreground hover:bg-surface-hover hover:text-foreground"
+            >
+              <Bug className="size-4" />
+              {intl.formatMessage({ id: "workspace.openDeveloperTools" })}
             </Button>
           </div>
 
