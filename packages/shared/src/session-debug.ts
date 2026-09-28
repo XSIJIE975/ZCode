@@ -33,6 +33,7 @@ const debugClientSigningSchema = z
     errorKind: z.string().optional(),
     httpStatus: count.optional(),
     businessCode: z.union([count, z.string()]).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
   })
   .strict();
 export const sessionDebugNetworkEntrySchema = z

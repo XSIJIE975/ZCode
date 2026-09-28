@@ -410,6 +410,22 @@ export function DeveloperToolsPane({
                       headers={entry.responseHeaders}
                       emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
                     />
+                    {entry.clientSigning?.headers &&
+                    Object.keys(entry.clientSigning.headers).length > 0 ? (
+                      <HeaderDetails
+                        title={intl.formatMessage(
+                          { id: "developerTools.network.signing.headers" },
+                          {
+                            count: formatNumber(
+                              locale,
+                              Object.keys(entry.clientSigning.headers).length,
+                            ),
+                          },
+                        )}
+                        headers={entry.clientSigning.headers}
+                        emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
+                      />
+                    ) : null}
                   </div>
                 );
               })}

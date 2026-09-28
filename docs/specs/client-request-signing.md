@@ -68,6 +68,13 @@ fetch(input, init)
       → 仍被拒 → 进入 bypass → unsigned("verify_refresh_exhausted")
 ```
 
+### 服务端验签的客户端证据
+
+网关**不**回显 `x-client-sign-verified`（实测响应头无此头；协议保留该名仅出现在出站剥离列表）。
+因此客户端侧的验签通过证据链是：`signed_sent(轮次1)` + 该请求 HTTP 200 完成 +
+无 `verify_rejected`/`bypass_entered` 观测——若签名被拒，signer 会自动重签重发并记录
+`verify_rejected`，连续两次被拒才进入 bypass 并显示「未签名(verify_refresh_exhausted)」。
+
 ### 签名 header 一族
 
 `X-App-Id: zcode`、`X-Client-Ts`、`X-Client-Version`、`X-Client-Nonce`（16B hex）、
@@ -79,6 +86,8 @@ fetch(input, init)
 
 - logger 事件：`model.client_signing.signed_sent / unsigned_sent / handshake_failed / verify_rejected / bypass_entered / request_failed_closed / feature_gate`。
 - `ClientSigningObservationStore` 以 `x-request-id` 归因每条观测，随 resolved model 暴露。
+- `signed_sent` 观测附带本请求签名头全量取值（x-app-id/ts/version/nonce/sig/pow/session-id），
+  面板「签名头」区块完整展示（用户明确要求不脱敏；取值逐请求变化，非长期凭据，不含 apiKey）。
 - runner 在每次尝试收口（completed / failed）后把观测发布为 `model_client_signing` 状态事件
   （只投进程级 statusSink）：经 core 记为 SessionEvent 后进入会话调试快照，
   最终在桌面端「开发者工具」面板网络区按请求展示签名结论（已签名 / 未签名(原因) / 验签被拒等）。

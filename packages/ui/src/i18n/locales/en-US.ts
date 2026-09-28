@@ -4742,6 +4742,7 @@ const enUS: Record<string, string> = {
   "developerTools.network.signing.reason": "Reason",
   "developerTools.network.signing.attempt": "Signing attempt",
   "developerTools.network.signing.gatewayEcho": "Gateway verify",
+  "developerTools.network.signing.headers": "Signing headers ({count})",
   "chat.contextCompaction.started": "Compressing context",
   "chat.contextCompaction.retrying": "Retrying context compression ({attempt}/{maxAttempts})",
   "chat.contextCompaction.skipped": "Context is up to date; no compression needed",

@@ -278,6 +278,8 @@ export interface ModelClientSigningObservationStatus {
   errorKind?: string;
   httpStatus?: number;
   businessCode?: number | string;
+  /** signed_sent 时本请求签名头取值（逐请求变化，非长期凭据）。 */
+  headers?: Record<string, string>;
 }
 
 export interface ModelClientSigningStatusEvent extends ModelNetworkStatusBase {
@@ -1101,6 +1103,10 @@ export const modelNetworkStatusEventJsonSchema = {
         errorKind: { type: "string" },
         httpStatus: { type: "number" },
         businessCode: { type: ["number", "string"] },
+        headers: {
+          type: "object",
+          additionalProperties: { type: "string" },
+        },
       },
     },
   },

@@ -120,6 +120,12 @@ export interface ClientSigningObservation {
   errorKind?: ClientRequestSigningErrorKind;
   httpStatus?: number;
   businessCode?: number | string;
+  /**
+   * signed_sent 时附带的本请求签名头取值（X-Client-* 全量）。
+   * 取值逐请求变化（ts/nonce/sig/pow），非长期凭据；应用内诊断面板按用户
+   * 要求完整展示，便于核对加签过程。不含 apiKey 本体。
+   */
+  headers?: Record<string, string>;
 }
 
 export interface ClientSigningObserverInput {
@@ -717,7 +723,19 @@ export class ClientRequestSigningSigner {
     headers.set("X-Client-Nonce", nonce);
     headers.set("X-App-Id", CLIENT_SIGNING_APP_ID);
     headers.set("X-Client-Pow", proofOfWork);
-    this.observe(request, { kind: "signed_sent", signedAttempt });
+    this.observe(request, {
+      kind: "signed_sent",
+      signedAttempt,
+      headers: {
+        "x-app-id": CLIENT_SIGNING_APP_ID,
+        "x-client-ts": ts,
+        "x-client-version": this.clientVersion,
+        "x-client-nonce": nonce,
+        "x-client-sig": signature,
+        "x-client-pow": proofOfWork,
+        "x-session-id": sessionId,
+      },
+    });
     return this.transport(request.url, buildSigningRequestInit(request, headers));
   }
 

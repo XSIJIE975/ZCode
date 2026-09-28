@@ -122,6 +122,7 @@ function clientSigningValue(value: unknown): ZCodeTaskNetworkDebugStatusClientSi
   if (!kind) return undefined;
   const attempt = positiveIntegerValue(record.signedAttempt);
   const httpStatus = nonNegativeIntegerValue(record.httpStatus);
+  const headers = stringRecordValue(record.headers);
   return {
     kind,
     ...(stringValue(record.reason) ? { reason: stringValue(record.reason) } : {}),
@@ -131,6 +132,7 @@ function clientSigningValue(value: unknown): ZCodeTaskNetworkDebugStatusClientSi
     ...(typeof record.businessCode === "number" || typeof record.businessCode === "string"
       ? { businessCode: record.businessCode }
       : {}),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
   };
 }
 
