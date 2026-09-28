@@ -3,6 +3,16 @@ import { createLocalTtftExporter } from "./localTtftExporter.js";
 import "./desktopEarlyDataBaseDirBootstrap.js";
 import "./desktopEarlyChromiumHardwareAccelerationBootstrap.js";
 import { powerMonitor, powerSaveBlocker } from "electron";
+import { MessageChannelMain } from "electron";
+import WebSocket from "ws";
+import {
+  WebRemoteControlChannels,
+  registerWebRemoteControlIpc,
+  RELAY_PASS_HASH_CREDENTIAL_KEY,
+} from "./webRemoteControl/relayIpc.js";
+import { createWebRemoteControlManager } from "./webRemoteControl/relayManager.js";
+import { createRelayPlatformHandlers } from "./webRemoteControl/relayPlatformHandlers.js";
+import type { RelaySocket } from "./webRemoteControl/relayTransportContract.js";
 import { crashCapturePaths } from "./appCrashCaptureBootstrap.js";
 import { armsInitPromise } from "./appARMSBootstrap.js";
 import {
@@ -789,6 +799,88 @@ const remoteSessionManager = createRemoteWorkspaceSessionManager({
 });
 
 const deviceMid = ensureDesktopDeviceMidSync();
+
+// ── 移动端远程控制（外部中继设备端）────────────────────────────────
+// 设备端主动外连 relay；main 只做配对/转发，会话事实仍在窗口 Host 与 CLI。
+const relayCredentialService = createCredentialService();
+const webRemoteControlManager = createWebRemoteControlManager({
+  getHostProcess: (windowId) => windowHostProcessMap.get(windowId),
+  createMessageChannel: () => {
+    const { port1, port2 } = new MessageChannelMain();
+    return { port1, port2 };
+  },
+  deviceMid,
+  appVersion: ZCODE_VERSION || app.getVersion(),
+  platform: process.platform,
+  deviceName: hostname(),
+  resolveRelayEndpoints: async () => {
+    // 仅未打包的本地开发可覆盖中继地址，用于回环验证建桥与 RPC 代理；
+    // 只影响 relayWsUrl / remoteUrl，不改变 OAuth、模型网关、计费等其它端点。
+    const override = app.isPackaged ? "" : (process.env.ZCODE_WEB_REMOTE_RELAY_ORIGIN ?? "").trim();
+    const origin = override || (await resolveCurrentZCodeEndpointOrigin());
+    const urls = buildZCodeEndpointUrls(origin);
+    if (override) {
+      logger.info("[web-remote-control] 使用本地中继覆盖（仅 dev 生效）", { origin });
+    }
+    return { relayWsUrl: urls.relayWsUrl, remoteUrl: urls.remoteUrl };
+  },
+  // maxPayload 与设备端 RELAY_MAX_FRAME_BYTES 同值：让 ws 在解析前就拒收超限帧，
+  // 避免超大报文先进内存再被丢弃。
+  createSocket: (url, options) =>
+    new WebSocket(url, { ...options, maxPayload: 1024 * 1024 }) as unknown as RelaySocket,
+  readPassHash: async () =>
+    (await relayCredentialService.load(RELAY_PASS_HASH_CREDENTIAL_KEY)) ?? undefined,
+  savePassHash: (passHash) => relayCredentialService.save(RELAY_PASS_HASH_CREDENTIAL_KEY, passHash),
+  clearPassHash: async () => {
+    await relayCredentialService.delete(RELAY_PASS_HASH_CREDENTIAL_KEY);
+  },
+  readDeviceSid: async () =>
+    (await mainSettingService.get()).webRemoteControlExternalRelayDevice?.deviceSid,
+  saveDeviceSid: async (sid) => {
+    await mainSettingService.update({ webRemoteControlExternalRelayDevice: { deviceSid: sid } });
+  },
+  // 是否走持久化鉴权由 passHash 与 deviceSid 同时成立决定，凭据已删时残留的 deviceSid
+  // 不会带来额外权限，因此这里只尽力清除，不作为安全边界。
+  clearDeviceSid: async () => {
+    await mainSettingService.update({ webRemoteControlExternalRelayDevice: undefined });
+  },
+  listWorkspacePaths: (windowId) => [...(windowWorkspaceMap.get(windowId) ?? [])],
+  platformHandlers: createRelayPlatformHandlers(),
+  // 与发行版 startupRestoreStorageProvider 同一形态：存 workspace 上下文，不存任何凭据。
+  startupRestoreStorage: {
+    load: async () => (await mainSettingService.get()).webRemoteControlLastEnabledContext,
+    save: async (context) => {
+      await mainSettingService.update({ webRemoteControlLastEnabledContext: context });
+    },
+    clear: async () => {
+      await mainSettingService.update({ webRemoteControlLastEnabledContext: undefined });
+    },
+  },
+  logger,
+  onStatusChanged: (windowId, status) => {
+    BrowserWindow.fromId(windowId)?.webContents.send(
+      WebRemoteControlChannels.StatusChanged,
+      status,
+    );
+  },
+});
+
+registerWebRemoteControlIpc({
+  ipcMain,
+  manager: webRemoteControlManager,
+  // 只信 Electron 提供的 sender，避免 renderer 传 windowId 去控制别的窗口。
+  resolveWindowId: (sender) => {
+    const contents = sender as { id?: number } | null;
+    if (typeof contents?.id !== "number") return undefined;
+    const window = BrowserWindow.fromWebContents(
+      webContents.fromId(contents.id) as Electron.WebContents,
+    );
+    return window?.id;
+  },
+  send: (windowId, channel, payload) => {
+    BrowserWindow.fromId(windowId)?.webContents.send(channel, payload);
+  },
+});
 // 帮助配置是公开读取，不能复用下面附带账号鉴权的灰度响应缓存。
 const readHelpConfig = createDesktopHelpConfigReader({
   appVersion: ZCODE_VERSION || app.getVersion(),
@@ -1063,6 +1155,13 @@ async function prepareAppQuit(reason: string, kind: AppShutdownKind = "normal"):
     })(),
     // remote session、attachment 和 transport 都由窗口 Host 持有；这里先清理
     // Main 的请求关联，再由下方每窗口唯一 Host 的 shutdown barrier 释放真实连接与 Agent。
+    (async () => {
+      try {
+        webRemoteControlManager.disposeAll(reason);
+      } catch (error) {
+        logger.warn(`[app-quit] web remote control dispose failed (${reason}):`, error);
+      }
+    })(),
     remoteSessionManager.disposeAllAndWaitForAppShutdown(reason),
     ...hostProcesses.map((child, index) =>
       disposeHostProcessAndWait(
@@ -2145,6 +2244,9 @@ app.whenReady().then(async () => {
       if (hostId) {
         taskRealtimeBus.updateHostWorkspaceKeys(hostId, workspaceKeys);
       }
+      // 窗口 workspace 集合变化的唯一入口：先给启动恢复一次机会，再把新列表推给已配对终端。
+      webRemoteControlManager.tryRestoreOnWorkspacesReady(windowId);
+      webRemoteControlManager.notifyWorkspacesChanged(windowId);
     },
     getUpdateState: getAutoUpdaterState,
     openUpdateStatusWindow,
@@ -2310,6 +2412,9 @@ app.on("browser-window-created", (_, win) => {
     browserGuestManager.closeWindow(win.id);
     windowWorkspaceMap.delete(win.id);
     windowTaskRealtimeHostIdMap.delete(win.id);
+    // 远控会话与其 Host attachment 都是窗口作用域的，关窗不回收会一直占着端口并向终端
+    // 播报一个已经不存在的窗口。
+    webRemoteControlManager.disable(win.id, "window-closed");
     if (windowUnreadCountMap.delete(win.id)) {
       syncApplicationUnreadBadge(windowUnreadCountMap);
     }
