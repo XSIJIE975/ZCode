@@ -5,6 +5,7 @@ import { getAgentPrimaryText } from "@/ToolCallBlocks/renderers/agentHelpers.js"
 import type { ConversationAssistantWorkRenderItem } from "@/v4/conversationAssistantWorkItems.js";
 import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
+import { SubagentStatsBar } from "@/v4/SessionStatsBar.js";
 import { runUserAction } from "@/lib/userActionTelemetry.js";
 
 function openSubagentSessionFromSummary({
@@ -92,6 +93,13 @@ export function ConversationAgentToolCallRow({
         agentSummaryAction={agentSummaryAction}
         authoritativeAgentType={subagentType}
       />
+      {childSessionId ? (
+        <SubagentStatsBar
+          childSessionId={childSessionId}
+          workspacePath={context.workspacePath}
+          workspaceIdentity={context.workspaceIdentity}
+        />
+      ) : null}
     </div>
   );
 }

@@ -3663,7 +3663,8 @@ export function createZCodeAgentService(
     },
 
     async getTaskTokenUsage(params: ZCodeAgentTaskTokenUsageParams) {
-      const client = await getReadOnlyClient(params);
+      // 被动观察：runtime 不在场（历史会话/已回收子代理）就失败返回空，不拉起新进程。
+      const client = await getReadOnlyClient(params, params.runtimePolicy ?? "existing-only");
       // session/usage → v4/conversation/usage（同上；task 是 UI 投影概念，
       // v4 名字空间落位 conversation）。
       return client.request(

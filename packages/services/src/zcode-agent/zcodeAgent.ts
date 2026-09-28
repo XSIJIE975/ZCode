@@ -224,7 +224,10 @@ export interface ZCodeAgentAppUsageParams {
   timeZone?: string;
 }
 
-export interface ZCodeAgentTaskTokenUsageParams extends ZCodeAgentSessionTarget {}
+export interface ZCodeAgentTaskTokenUsageParams extends ZCodeAgentSessionTarget {
+  /** 统计条/徽标是被动观察，禁止为读用量拉起新 runtime。 */
+  runtimePolicy?: ZCodeAgentRuntimePolicy;
+}
 
 export interface ZCodeAgentReadSessionParams extends ZCodeAgentSessionTarget {
   deliveryKind?: ZCodeDeliveryKind;

@@ -280,6 +280,28 @@ export function DeveloperToolsPane({
                         <span className="min-w-0 truncate font-mono text-foreground">
                           {entry.providerId ?? entry.providerKind ?? "-"}
                         </span>
+                        <span>{intl.formatMessage({ id: "developerTools.network.source" })}</span>
+                        {entry.subagentSessionId ? (
+                          // detached 子代理条目：来源会话 id 放 title 便于复制排查。
+                          <span
+                            className="min-w-0 truncate font-mono text-foreground"
+                            title={entry.subagentSessionId}
+                          >
+                            {intl.formatMessage({ id: "developerTools.network.source.subagent" })}
+                            <span className="ml-1 text-foreground-subtle">
+                              {entry.subagentSessionId}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="min-w-0 truncate font-mono text-foreground">
+                            {intl.formatMessage({
+                              id:
+                                entry.querySource === "workflow_child"
+                                  ? "developerTools.network.source.workflow"
+                                  : "developerTools.network.source.main",
+                            })}
+                          </span>
+                        )}
                         {entry.clientSigning ? (
                           <>
                             <span>

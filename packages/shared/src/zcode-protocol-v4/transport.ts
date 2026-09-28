@@ -807,9 +807,9 @@ export const v4ConversationUsageResultSchema = z
     toolCallCount: z.number().int().nonnegative().optional(),
     lastRoundTokensPerSecond: z.number().positive().optional(),
     averageTokensPerSecond: z.number().positive().optional(),
-    mainTurnInputTokens: z.number().int().nonnegative().optional(),
-    mainTurnOutputTokens: z.number().int().nonnegative().optional(),
-    mainTurnCacheReadTokens: z.number().int().nonnegative().optional(),
+    primaryInputTokens: z.number().int().nonnegative().optional(),
+    primaryOutputTokens: z.number().int().nonnegative().optional(),
+    primaryCacheReadTokens: z.number().int().nonnegative().optional(),
     // 最近一次客户端签名结论（跨重启持久）；kind 与观测事件同枚举。
     lastClientSigning: z
       .object({

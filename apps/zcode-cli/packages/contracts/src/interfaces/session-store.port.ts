@@ -1078,11 +1078,11 @@ export interface TaskUsageQueryResult {
   lastRoundTokensPerSecond?: number;
   /** main_turn completed 请求的加权平均净生成速度（总输出/总净生成时长）；无有效数据时缺省。 */
   averageTokensPerSecond?: number;
-  /** 以下三项为 main_turn completed 请求的原始累计（与增量 inputTokens 口径不同），
-   * 供会话统计条按「总输入/输出/缓存读」展示并计算命中率。 */
-  mainTurnInputTokens?: number;
-  mainTurnOutputTokens?: number;
-  mainTurnCacheReadTokens?: number;
+  /** 主链路 completed 请求（父会话=main_turn；子会话查询=subagent）的原始累计，
+   * 与增量 inputTokens 口径不同，供会话统计条展示。始终返回（无数据为 0）。 */
+  primaryInputTokens?: number;
+  primaryOutputTokens?: number;
+  primaryCacheReadTokens?: number;
   /** 会话最近一次客户端签名结论（来自 model_usage 最新带签名行）；重启后仍可展示。 */
   lastClientSigning?: {
     kind: string;

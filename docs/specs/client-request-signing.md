@@ -123,9 +123,20 @@ fetch(input, init)
      `lastClientSigning`。应用重启后打开历史会话仍能展示（轮/步/tps/累计/签名状态）。
    - 签名结论随每次模型请求落库（`model_usage.client_signing_kind/reason`，
      migration 0023），只存 kind/reason，签名头取值不落盘、不出远端流。
+   - 统计口径只含本会话主链路（`primary*` 字段：父会话查询=main_turn 行；
+     子会话查询=subagent 行），子代理数据挂在独立 childSessionId 下不混入；
+     「输入」是累计口径（逐轮全上下文重发累加），与上下文容量弹窗的
+     「当前窗口水位」不同义。
+   - 子代理迷你统计条（`SubagentStatsBar`，渲染在每个子智能体行下方）按
+     childSessionId 查询同一用量接口，展示该子代理自己的轮/步/平均 tps/输入/
+     输出/签名状态；existing-only 读侧策略，runtime 不在场不拉起。
 10. 非法凭据（非 `id.secret` 形态且 gate 开启）：降级为未签名发送并记
     `unsigned_sent(invalid_credential)`——官方域上用户自建 provider + 普通 `sk-` Key
     的按量 API 用法不得被签名层硬失败（对发行版 fail-closed 语义的开源侧偏差，
     属可用性修正）。
 11. gate 查询失败启用 30s 负缓存：端点故障期不再逐请求付出 15s gate 超时；
     成功结论仍按 1h TTL 缓存（对发行版语义的开源侧可用性增补）。
+12. 开发者工具网络列表包含子代理请求：detached child 事件（独立子 sessionId）
+    在 bootstrap 旁路并入父会话调试快照（`observeDetachedSessionDebug`），条目带
+    `subagentSessionId` 与 querySource，面板「来源」行区分主会话/子代理/工作流；
+    轮次表与命中率汇总仍只收主会话 main_turn，子代理条目不污染统计。

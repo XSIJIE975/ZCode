@@ -38,6 +38,7 @@ export function useTaskUsageStats({
             workspacePath,
             workspaceIdentity,
             sessionId: taskId,
+            runtimePolicy: "existing-only",
           });
           if (!disposed) {
             setResult({ key: scopeKey, service: zcodeAgentService, data, error: false });
@@ -59,7 +60,6 @@ export function useTaskUsageStats({
     };
   }, [scopeKey, taskId, refreshKey, workspaceIdentity, workspacePath, zcodeAgentService]);
 
-  const current =
-    result?.key === scopeKey && result.service === zcodeAgentService ? result : null;
+  const current = result?.key === scopeKey && result.service === zcodeAgentService ? result : null;
   return { usage: current?.data ?? null, error: current?.error ?? false };
 }

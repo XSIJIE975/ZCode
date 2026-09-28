@@ -668,10 +668,10 @@ export async function queryTaskUsage(
   let generationDurationMs = 0;
   let lastRoundTokensPerSecond: number | undefined;
   // main_turn completed 的原始累计（未做 baseline 增量折算），供统计条展示与命中率。
-  let mainTurnCount = 0;
-  let mainTurnInputTokens = 0;
-  let mainTurnOutputTokens = 0;
-  let mainTurnCacheReadTokens = 0;
+  let primaryTurnCount = 0;
+  let primaryInputTokens = 0;
+  let primaryOutputTokens = 0;
+  let primaryCacheReadTokens = 0;
 
   for (const row of rows) {
     const rawTotalTokens = Number(row.providerTotalTokens ?? row.computedTotalTokens ?? 0);
@@ -701,11 +701,14 @@ export async function queryTaskUsage(
     if (row.status === "error") {
       modelErrorCount += 1;
     }
-    if (row.querySource === "main_turn" && row.status === "completed") {
-      mainTurnCount += 1;
-      mainTurnInputTokens += inputSideTokens;
-      mainTurnOutputTokens += rowOutputTokens;
-      mainTurnCacheReadTokens += Number(row.cacheReadTokens ?? 0);
+    if (
+      (row.querySource === "main_turn" || row.querySource === "subagent") &&
+      row.status === "completed"
+    ) {
+      primaryTurnCount += 1;
+      primaryInputTokens += inputSideTokens;
+      primaryOutputTokens += rowOutputTokens;
+      primaryCacheReadTokens += Number(row.cacheReadTokens ?? 0);
       const duration = Number(row.durationMs ?? 0);
       const timeToFirstToken = Number(row.timeToFirstTokenMs ?? 0);
       const rowGenerationMs = Math.max(0, duration - timeToFirstToken);
@@ -735,9 +738,10 @@ export async function queryTaskUsage(
     ...(generationDurationMs > 0
       ? { averageTokensPerSecond: (generationOutputTokens * 1000) / generationDurationMs }
       : {}),
-    ...(mainTurnCount > 0
-      ? { mainTurnInputTokens, mainTurnOutputTokens, mainTurnCacheReadTokens }
-      : {}),
+    // 始终返回（0 也返回）：UI 不必回退到 live 口径，历史会话冷启动直接显示 0/-。
+    primaryInputTokens,
+    primaryOutputTokens,
+    primaryCacheReadTokens,
     ...(lastSigningRow
       ? {
           lastClientSigning: {

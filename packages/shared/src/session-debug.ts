@@ -71,6 +71,8 @@ export const sessionDebugNetworkEntrySchema = z
     reason: z.string().optional(),
     message: z.string().optional(),
     clientSigning: debugClientSigningSchema.optional(),
+    /** detached 子代理条目的来源会话 id（subagent_<agentId>）；主会话条目缺省。 */
+    subagentSessionId: z.string().optional(),
     requestHeaders: z.record(z.string(), z.string()),
     responseHeaders: z.record(z.string(), z.string()),
     requestHeaderCount: count,
