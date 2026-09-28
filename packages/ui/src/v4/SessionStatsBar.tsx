@@ -1,9 +1,15 @@
-import { BadgeCheck, ShieldAlert } from "lucide-react";
+import { BadgeCheck, Settings2, ShieldAlert } from "lucide-react";
 import { useMemo } from "react";
+import { Checkbox } from "@/components/ui/checkbox.js";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.js";
 import { useSessionDebug } from "@/hooks/useSessionDebug.js";
 import { useTaskUsageStats } from "@/hooks/useTaskUsageStats.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { isSigningAttentionKind, signingKindLabelId } from "@/lib/clientSigningLabels.js";
+import {
+  useSessionStatsSegments,
+  type SessionStatsSegments,
+} from "@/lib/sessionStatsPreference.js";
 
 /** 签名状态图标徽标：只留图标（size-3.5），完整结论与原因放 title 悬浮提示。
  * 视觉两类：signed_sent = 绿色对勾；其余五种 kind = 黄色警示（原因见 title）。 */
@@ -72,6 +78,7 @@ export function SessionStatsBar({
   active: boolean;
 }) {
   const { intl, locale } = useZCodeIntl();
+  const { segments } = useSessionStatsSegments();
   const debugState = useSessionDebug({
     workspacePath,
     workspaceIdentity,
@@ -124,17 +131,17 @@ export function SessionStatsBar({
   };
 
   const turnsText =
-    items.turns > 0
+    segments.turns && items.turns > 0
       ? intl.formatMessage({ id: "sessionStats.turns" }, { count: items.turns })
       : undefined;
   const stepsText =
-    items.steps > 0
+    segments.steps && items.steps > 0
       ? intl.formatMessage({ id: "sessionStats.steps" }, { count: items.steps })
       : undefined;
-  const lastTpsText = tps(items.lastTps);
-  const avgTpsText = tps(items.averageTps);
-  const inputText = compact(items.inputTokens);
-  const outputText = compact(items.outputTokens);
+  const lastTpsText = segments.lastTps ? tps(items.lastTps) : undefined;
+  const avgTpsText = segments.avgTps ? tps(items.averageTps) : undefined;
+  const inputText = segments.input ? compact(items.inputTokens) : undefined;
+  const outputText = segments.output ? compact(items.outputTokens) : undefined;
 
   return (
     <div
@@ -162,7 +169,7 @@ export function SessionStatsBar({
           className="hidden whitespace-nowrap font-mono @min-[720px]/composer:inline"
           title={intl.formatMessage({ id: "sessionStats.lastTps" }, { value: lastTpsText })}
         >
-          {lastTpsText} tok/s
+          {intl.formatMessage({ id: "sessionStats.label.lastTps" })} {lastTpsText} tok/s
         </span>
       ) : null}
       {avgTpsText ? (
@@ -170,7 +177,7 @@ export function SessionStatsBar({
           className="whitespace-nowrap font-mono @max-[520px]/composer:hidden"
           title={intl.formatMessage({ id: "sessionStats.avgTps" }, { value: avgTpsText })}
         >
-          {avgTpsText} tok/s
+          {intl.formatMessage({ id: "sessionStats.label.avgTps" })} {avgTpsText} tok/s
         </span>
       ) : null}
       {inputText ? (
@@ -196,7 +203,57 @@ export function SessionStatsBar({
           testId="session-stats-signing-badge"
         />
       ) : null}
+      <SessionStatsConfigButton />
     </div>
+  );
+}
+
+/** 统计条配置入口：低对比齿轮 + Popover 勾选面板，改动即时生效并存 localStorage。 */
+function SessionStatsConfigButton() {
+  const { intl } = useZCodeIntl();
+  const { segments, update } = useSessionStatsSegments();
+  const rows: Array<{ key: keyof SessionStatsSegments; labelId: string }> = [
+    { key: "turns", labelId: "sessionStats.config.turns" },
+    { key: "steps", labelId: "sessionStats.config.steps" },
+    { key: "lastTps", labelId: "sessionStats.config.lastTps" },
+    { key: "avgTps", labelId: "sessionStats.config.avgTps" },
+    { key: "input", labelId: "sessionStats.config.input" },
+    { key: "output", labelId: "sessionStats.config.output" },
+  ];
+  return (
+    <Popover>
+      <PopoverTrigger
+        className="shrink-0 rounded p-0.5 text-foreground-subtlest opacity-60 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none"
+        title={intl.formatMessage({ id: "sessionStats.config.title" })}
+        aria-label={intl.formatMessage({ id: "sessionStats.config.title" })}
+        data-testid="session-stats-config"
+      >
+        <Settings2 className="size-3.5" aria-hidden="true" />
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-auto p-3">
+        <div className="text-ui-xs font-medium text-foreground">
+          {intl.formatMessage({ id: "sessionStats.config.title" })}
+        </div>
+        <div className="mt-2 flex flex-col gap-1.5">
+          {rows.map((row) => (
+            <label
+              key={row.key}
+              className="flex cursor-default items-center gap-2 text-ui-xs text-foreground"
+            >
+              <Checkbox
+                checked={segments[row.key]}
+                onCheckedChange={(checked) => update({ [row.key]: checked === true })}
+              />
+              {intl.formatMessage({ id: row.labelId })}
+            </label>
+          ))}
+        </div>
+        {/* 签名徽标固定展示，不参与配置（签名状态是诊断关键信息）。 */}
+        <div className="mt-2 text-ui-xs text-foreground-subtlest">
+          {intl.formatMessage({ id: "sessionStats.config.signingFixed" })}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -217,6 +274,7 @@ export function SubagentStatsBar({
   workspaceIdentity?: string;
 }) {
   const { intl, locale } = useZCodeIntl();
+  const { segments } = useSessionStatsSegments();
   const { usage } = useTaskUsageStats({
     workspacePath,
     workspaceIdentity,
@@ -244,16 +302,16 @@ export function SubagentStatsBar({
   // 子会话行的 query_source 全是 subagent：primary*/turnCount/toolCallCount/tps
   // 在 child 查询下即子代理口径（tps 聚合已放宽到 subagent 行）。
   const turnsText =
-    (usage.turnCount ?? 0) > 0
+    segments.turns && (usage.turnCount ?? 0) > 0
       ? intl.formatMessage({ id: "sessionStats.turns" }, { count: usage.turnCount ?? 0 })
       : undefined;
   const stepsText =
-    (usage.toolCallCount ?? 0) > 0
+    segments.steps && (usage.toolCallCount ?? 0) > 0
       ? intl.formatMessage({ id: "sessionStats.steps" }, { count: usage.toolCallCount ?? 0 })
       : undefined;
-  const avgTpsText = tps(usage.averageTokensPerSecond);
-  const inputText = compact(usage.primaryInputTokens);
-  const outputText = compact(usage.primaryOutputTokens);
+  const avgTpsText = segments.avgTps ? tps(usage.averageTokensPerSecond) : undefined;
+  const inputText = segments.input ? compact(usage.primaryInputTokens) : undefined;
+  const outputText = segments.output ? compact(usage.primaryOutputTokens) : undefined;
   const clientSigning = usage.lastClientSigning ?? null;
   const hasData =
     (turnsText ?? stepsText ?? avgTpsText ?? inputText ?? outputText) !== undefined ||
