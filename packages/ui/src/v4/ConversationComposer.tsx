@@ -379,6 +379,12 @@ interface ConversationComposerProps {
    * 仅草稿态由宿主下发；会话建立后为空。
    */
   contextHeader?: ReactNode;
+  /**
+   * 会话统计条内容（轮/步/tps/累计 token/签名状态），渲染在输入壳内部顶部：
+   * 与输入框同一张 rounded-2xl 卡片（顶栏 + 分隔线），圆角与背景天然对齐，
+   * 不透明不透底。由 SessionPane 传入；空则不渲染顶栏。
+   */
+  statsBar?: ReactNode;
   /** 居中草稿布局（旧 shouldUseCenteredDraftChatLayout）：收窄 max-w-2xl、去 sticky。 */
   centered?: boolean;
   /**
@@ -494,6 +500,7 @@ function ConversationComposerImpl({
   createSubmissionFromComposer,
   telemetryDraftConfig,
   contextHeader,
+  statsBar,
   centered = false,
   blockingRequestId = null,
   disabled = false,
@@ -2232,6 +2239,12 @@ function ConversationComposerImpl({
           contextHeader && "rounded-2xl bg-surface shadow-xl/5",
         )}
       >
+        {statsBar ? (
+          // 统计顶栏在壳内：右对齐纯内容行，容器由壳的圆角/背景兜底，不透底。
+          <div className="flex min-w-0 items-center justify-end border-b border-border px-3 py-1.5">
+            {statsBar}
+          </div>
+        ) : null}
         {contextHeader ? (
           // 旧 ChatViewComposer contextHeaderContent 同款包装（workspace 菜单 + Git 分支）。
           <div className="p-1.5 flex min-w-0 flex-wrap items-center gap-0">{contextHeader}</div>

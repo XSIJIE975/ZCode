@@ -4367,6 +4367,16 @@ export function SessionPane({
   const composerNode = readOnly ? null : (
     <ConversationComposer
       key="conversation-composer"
+      statsBar={
+        sessionId ? (
+          <SessionStatsBar
+            sessionId={sessionId}
+            workspacePath={workspacePath}
+            workspaceIdentity={workspaceIdentity}
+            active={Boolean(snapshot?.control.canStop)}
+          />
+        ) : undefined
+      }
       // Snapshot 仍服务用量、路由与运行态；工具栏的 mode/model 只读下方 Composer Draft。
       snapshot={snapshot}
       sessionId={sessionId}
@@ -4550,15 +4560,6 @@ export function SessionPane({
           remoteSessionId={remoteSessionId ?? undefined}
           provider={provider}
           snapshot={snapshot}
-        />
-      ) : null}
-      {/* 会话统计信息条：轮数/步数/tps/输入输出缓存/签名状态，置于输入框上方。 */}
-      {sessionId && !readOnly ? (
-        <SessionStatsBar
-          sessionId={sessionId}
-          workspacePath={workspacePath}
-          workspaceIdentity={workspaceIdentity}
-          active={Boolean(snapshot?.control.canStop)}
         />
       ) : null}
       {composerNode}

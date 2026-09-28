@@ -6,13 +6,14 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { isSigningAttentionKind, signingKindLabelId } from "@/lib/clientSigningLabels.js";
 
 /**
- * 会话统计信息条（输入框上方右对齐的小胶囊条）：轮数 / 步数 / 上一轮与平均 tps /
- * 输入 / 输出 / 客户端签名状态。只统计主会话（main_turn）口径，子代理不混入。
+ * 会话统计信息条内容行：轮数 / 步数 / 上一轮与平均 tps / 累计输入 / 输出 /
+ * 客户端签名状态。只统计主会话（main_turn）口径，子代理不混入。
  *
  * 数据合成：live 部分来自进程内 session-debug 快照（主轮请求级，处理中 1s /
  * 空闲 5s 刷新），持久部分来自 v4/conversation/usage（SQLite model_usage 聚合，
- * 重启后仍在）。视觉走 surface 语义 token（bg-surface + border-border），浅色 /
- * 暗色主题自动跟随；右对齐避免挤压左侧对话内容，不透明底防止与滚动内容重叠。
+ * 重启后仍在）。本组件只是内容行，容器由输入壳提供（ConversationComposer 的
+ * rounded-2xl 卡片顶栏 + 分隔线），圆角/背景与输入框天然一致，浅色/暗色主题
+ * 走语义 token 自动跟随。
  */
 export function SessionStatsBar({
   sessionId,
@@ -111,39 +112,37 @@ export function SessionStatsBar({
     : null;
 
   return (
-    <div className="flex justify-end">
-      <div
-        className="flex max-w-full min-w-0 flex-wrap items-center justify-end gap-x-2.5 gap-y-0.5 rounded-md border border-border bg-surface px-2.5 py-1 text-ui-xs text-foreground-subtle"
-        data-testid="session-stats-bar"
-      >
-        {segments.map((segment) => (
-          <span key={segment} className="whitespace-nowrap font-mono">
-            {segment}
+    <div
+      className="flex max-w-full min-w-0 flex-wrap items-center justify-end gap-x-2.5 gap-y-0.5 text-ui-xs text-foreground-subtle"
+      data-testid="session-stats-bar"
+    >
+      {segments.map((segment) => (
+        <span key={segment} className="whitespace-nowrap font-mono">
+          {segment}
+        </span>
+      ))}
+      {clientSigning ? (
+        <span
+          className={`inline-flex min-w-0 shrink-0 items-center gap-0.5 rounded-full border border-border bg-surface px-1.5 py-px font-medium leading-normal ${
+            signed ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-400"
+          }`}
+          title={`${signed ? intl.formatMessage({ id: "sidebar.signing.tooltip.signed" }) : intl.formatMessage({ id: "sidebar.signing.tooltip.unsigned" }, { reason: clientSigning.reason ?? kindLabel ?? "" })}\n${intl.formatMessage({ id: "sidebar.signing.tooltip.detail" })}`}
+          data-testid="session-stats-signing-badge"
+          data-signing-kind={clientSigning.kind}
+          data-signing-attention={isSigningAttentionKind(clientSigning.kind) ? "true" : "false"}
+        >
+          {signed ? (
+            <BadgeCheck className="size-3" aria-hidden="true" />
+          ) : (
+            <ShieldAlert className="size-3" aria-hidden="true" />
+          )}
+          <span className="truncate">
+            {intl.formatMessage({
+              id: signed ? "sidebar.signing.signed" : "sidebar.signing.unsigned",
+            })}
           </span>
-        ))}
-        {clientSigning ? (
-          <span
-            className={`inline-flex min-w-0 shrink-0 items-center gap-0.5 rounded-full border border-border bg-background px-1.5 py-px font-medium leading-normal ${
-              signed ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-400"
-            }`}
-            title={`${signed ? intl.formatMessage({ id: "sidebar.signing.tooltip.signed" }) : intl.formatMessage({ id: "sidebar.signing.tooltip.unsigned" }, { reason: clientSigning.reason ?? kindLabel ?? "" })}\n${intl.formatMessage({ id: "sidebar.signing.tooltip.detail" })}`}
-            data-testid="session-stats-signing-badge"
-            data-signing-kind={clientSigning.kind}
-            data-signing-attention={isSigningAttentionKind(clientSigning.kind) ? "true" : "false"}
-          >
-            {signed ? (
-              <BadgeCheck className="size-3" aria-hidden="true" />
-            ) : (
-              <ShieldAlert className="size-3" aria-hidden="true" />
-            )}
-            <span className="truncate">
-              {intl.formatMessage({
-                id: signed ? "sidebar.signing.signed" : "sidebar.signing.unsigned",
-              })}
-            </span>
-          </span>
-        ) : null}
-      </div>
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -221,7 +220,7 @@ export function SubagentStatsBar({
   return (
     <div className="flex justify-end pr-4 pb-1">
       <div
-        className="flex max-w-full min-w-0 flex-wrap items-center justify-end gap-x-2.5 gap-y-0.5 rounded-md border border-border bg-surface px-2 py-0.5 text-ui-xs text-foreground-subtle"
+        className="flex max-w-full min-w-0 flex-wrap items-center justify-end gap-x-2.5 gap-y-0.5 rounded-lg border border-border bg-background px-2 py-0.5 text-ui-xs text-foreground-subtle"
         data-testid="subagent-stats-bar"
         data-child-session-id={childSessionId}
       >
@@ -232,7 +231,7 @@ export function SubagentStatsBar({
         ))}
         {clientSigning ? (
           <span
-            className={`inline-flex min-w-0 shrink-0 items-center gap-0.5 rounded-full border border-border bg-background px-1.5 py-px font-medium leading-normal ${
+            className={`inline-flex min-w-0 shrink-0 items-center gap-0.5 rounded-full border border-border bg-surface px-1.5 py-px font-medium leading-normal ${
               signed ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-400"
             }`}
             title={
