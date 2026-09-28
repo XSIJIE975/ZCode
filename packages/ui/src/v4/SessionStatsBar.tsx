@@ -5,15 +5,59 @@ import { useTaskUsageStats } from "@/hooks/useTaskUsageStats.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { isSigningAttentionKind, signingKindLabelId } from "@/lib/clientSigningLabels.js";
 
+/** 签名状态图标徽标：只留图标（size-3.5），完整结论与原因放 title 悬浮提示。
+ * 视觉两类：signed_sent = 绿色对勾；其余五种 kind = 黄色警示（原因见 title）。 */
+export function SigningBadge({
+  kind,
+  reason,
+  testId,
+}: {
+  kind: string;
+  reason?: string;
+  testId?: string;
+}) {
+  const { intl } = useZCodeIntl();
+  const signed = kind === "signed_sent";
+  const kindLabel = intl.formatMessage({ id: signingKindLabelId(kind) });
+  const tooltip = signed
+    ? intl.formatMessage({ id: "sidebar.signing.tooltip.signed" })
+    : intl.formatMessage(
+        { id: "sidebar.signing.tooltip.unsigned" },
+        { reason: reason ?? kindLabel },
+      );
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded-full p-0.5 leading-none ${
+        signed ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-400"
+      }`}
+      title={`${tooltip}\n${intl.formatMessage({ id: "sidebar.signing.tooltip.detail" })}`}
+      aria-label={kindLabel}
+      role="img"
+      {...(testId ? { "data-testid": testId } : {})}
+      data-signing-kind={kind}
+      data-signing-attention={isSigningAttentionKind(kind) ? "true" : "false"}
+    >
+      {signed ? (
+        <BadgeCheck className="size-3.5" aria-hidden="true" />
+      ) : (
+        <ShieldAlert className="size-3.5" aria-hidden="true" />
+      )}
+    </span>
+  );
+}
+
 /**
  * 会话统计信息条内容行：轮数 / 步数 / 上一轮与平均 tps / 累计输入 / 输出 /
  * 客户端签名状态。只统计主会话（main_turn）口径，子代理不混入。
  *
  * 数据合成：live 部分来自进程内 session-debug 快照（主轮请求级，处理中 1s /
  * 空闲 5s 刷新），持久部分来自 v4/conversation/usage（SQLite model_usage 聚合，
- * 重启后仍在）。本组件只是内容行，容器由输入壳提供（ConversationComposer 的
- * rounded-2xl 卡片顶栏 + 分隔线），圆角/背景与输入框天然一致，浅色/暗色主题
- * 走语义 token 自动跟随。
+ * 重启后仍在）。本组件只是内容行，容器由输入卡片提供（ChatPromptEditor 的
+ * rounded-2xl bg-input 卡顶栏），圆角/背景与输入框天然一致。
+ *
+ * 窄窗口渐进精简（容器查询，沿用 GitActionMenu workspace-header 的做法）：
+ * 输入/输出用 ↑/↓ 符号替代文字标签；<720px 隐藏「上一轮 tps」；<520px 只留
+ * 轮/步/签名图标。全部数值带 title 悬浮全称，隐藏的信息开发者工具仍可查。
  */
 export function SessionStatsBar({
   sessionId,
@@ -91,67 +135,77 @@ export function SessionStatsBar({
   const avgTpsText = tps(items.averageTps);
   const inputText = compact(items.inputTokens);
   const outputText = compact(items.outputTokens);
-  const segments: string[] = [
-    ...(turnsText ? [turnsText] : []),
-    ...(stepsText ? [stepsText] : []),
-    ...(lastTpsText
-      ? [intl.formatMessage({ id: "sessionStats.lastTps" }, { value: lastTpsText })]
-      : []),
-    ...(avgTpsText
-      ? [intl.formatMessage({ id: "sessionStats.avgTps" }, { value: avgTpsText })]
-      : []),
-    ...(inputText ? [intl.formatMessage({ id: "sessionStats.input" }, { value: inputText })] : []),
-    ...(outputText
-      ? [intl.formatMessage({ id: "sessionStats.output" }, { value: outputText })]
-      : []),
-  ];
-
-  const signed = clientSigning?.kind === "signed_sent";
-  const kindLabel = clientSigning
-    ? intl.formatMessage({ id: signingKindLabelId(clientSigning.kind) })
-    : null;
 
   return (
     <div
       className="flex max-w-full min-w-0 flex-wrap items-center justify-end gap-x-2.5 gap-y-0.5 text-ui-xs text-foreground-subtle"
       data-testid="session-stats-bar"
     >
-      {segments.map((segment) => (
-        <span key={segment} className="whitespace-nowrap font-mono">
-          {segment}
-        </span>
-      ))}
-      {clientSigning ? (
+      {turnsText ? (
         <span
-          className={`inline-flex min-w-0 shrink-0 items-center gap-0.5 rounded-full border border-border bg-surface px-1.5 py-px font-medium leading-normal ${
-            signed ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-400"
-          }`}
-          title={`${signed ? intl.formatMessage({ id: "sidebar.signing.tooltip.signed" }) : intl.formatMessage({ id: "sidebar.signing.tooltip.unsigned" }, { reason: clientSigning.reason ?? kindLabel ?? "" })}\n${intl.formatMessage({ id: "sidebar.signing.tooltip.detail" })}`}
-          data-testid="session-stats-signing-badge"
-          data-signing-kind={clientSigning.kind}
-          data-signing-attention={isSigningAttentionKind(clientSigning.kind) ? "true" : "false"}
+          className="whitespace-nowrap font-mono"
+          title={intl.formatMessage({ id: "sessionStats.turns" }, { count: items.turns })}
         >
-          {signed ? (
-            <BadgeCheck className="size-3" aria-hidden="true" />
-          ) : (
-            <ShieldAlert className="size-3" aria-hidden="true" />
-          )}
-          <span className="truncate">
-            {intl.formatMessage({
-              id: signed ? "sidebar.signing.signed" : "sidebar.signing.unsigned",
-            })}
-          </span>
+          {turnsText}
         </span>
+      ) : null}
+      {stepsText ? (
+        <span
+          className="whitespace-nowrap font-mono"
+          title={intl.formatMessage({ id: "sessionStats.steps" }, { count: items.steps })}
+        >
+          {stepsText}
+        </span>
+      ) : null}
+      {lastTpsText ? (
+        <span
+          className="hidden whitespace-nowrap font-mono @min-[720px]/composer:inline"
+          title={intl.formatMessage({ id: "sessionStats.lastTps" }, { value: lastTpsText })}
+        >
+          {lastTpsText} tok/s
+        </span>
+      ) : null}
+      {avgTpsText ? (
+        <span
+          className="whitespace-nowrap font-mono @max-[520px]/composer:hidden"
+          title={intl.formatMessage({ id: "sessionStats.avgTps" }, { value: avgTpsText })}
+        >
+          {avgTpsText} tok/s
+        </span>
+      ) : null}
+      {inputText ? (
+        <span
+          className="whitespace-nowrap font-mono @max-[520px]/composer:hidden"
+          title={intl.formatMessage({ id: "sessionStats.input" }, { value: inputText })}
+        >
+          ↑{inputText}
+        </span>
+      ) : null}
+      {outputText ? (
+        <span
+          className="whitespace-nowrap font-mono @max-[520px]/composer:hidden"
+          title={intl.formatMessage({ id: "sessionStats.output" }, { value: outputText })}
+        >
+          ↓{outputText}
+        </span>
+      ) : null}
+      {clientSigning ? (
+        <SigningBadge
+          kind={clientSigning.kind}
+          reason={clientSigning.reason}
+          testId="session-stats-signing-badge"
+        />
       ) : null}
     </div>
   );
 }
 
 /**
- * 子代理迷你统计条：渲染在每个子智能体行下方，只展示该子代理自己的用量
- * （childSessionId 在 model_usage/turn_usage 里是独立 session_id，直接查询即天然
- * 隔离主会话数据）。只用持久聚合（runtime 不在场不拉起，existing-only），
- * 无 live 轮询；数据未落库或 runtime 已回收时整条隐藏。
+ * 子代理迷你统计条：渲染在每个子智能体行下方（左对齐，跟随对话流缩进），
+ * 只展示该子代理自己的用量（childSessionId 在 model_usage/turn_usage 里是独立
+ * session_id，直接查询即天然隔离主会话数据）。只用持久聚合（runtime 不在场
+ * 不拉起，existing-only），无 live 轮询；数据未落库或 runtime 已回收时整条隐藏。
+ * 窄窗口（viewport < md）隐藏 tps 与 token 段，只留 轮/步/签名图标。
  */
 export function SubagentStatsBar({
   childSessionId,
@@ -200,63 +254,55 @@ export function SubagentStatsBar({
   const avgTpsText = tps(usage.averageTokensPerSecond);
   const inputText = compact(usage.primaryInputTokens);
   const outputText = compact(usage.primaryOutputTokens);
-  const segments: string[] = [
-    ...(turnsText ? [turnsText] : []),
-    ...(stepsText ? [stepsText] : []),
-    ...(avgTpsText
-      ? [intl.formatMessage({ id: "sessionStats.avgTps" }, { value: avgTpsText })]
-      : []),
-    ...(inputText ? [intl.formatMessage({ id: "sessionStats.input" }, { value: inputText })] : []),
-    ...(outputText
-      ? [intl.formatMessage({ id: "sessionStats.output" }, { value: outputText })]
-      : []),
-  ];
   const clientSigning = usage.lastClientSigning ?? null;
-  const hasData = segments.length > 0 || clientSigning !== null;
+  const hasData =
+    (turnsText ?? stepsText ?? avgTpsText ?? inputText ?? outputText) !== undefined ||
+    clientSigning !== null;
   if (!hasData) return null;
 
-  const signed = clientSigning?.kind === "signed_sent";
-
   return (
-    <div className="flex justify-end pr-4 pb-1">
+    <div className="flex justify-start py-0.5">
       <div
-        className="flex max-w-full min-w-0 flex-wrap items-center justify-end gap-x-2.5 gap-y-0.5 rounded-lg border border-border bg-background px-2 py-0.5 text-ui-xs text-foreground-subtle"
+        className="flex max-w-full min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-lg border border-border bg-background px-2 py-0.5 text-ui-xs text-foreground-subtle"
         data-testid="subagent-stats-bar"
         data-child-session-id={childSessionId}
       >
-        {segments.map((segment) => (
-          <span key={segment} className="whitespace-nowrap font-mono">
-            {segment}
+        {turnsText ? (
+          <span className="whitespace-nowrap font-mono" title={turnsText}>
+            {turnsText}
           </span>
-        ))}
-        {clientSigning ? (
+        ) : null}
+        {stepsText ? (
+          <span className="whitespace-nowrap font-mono" title={stepsText}>
+            {stepsText}
+          </span>
+        ) : null}
+        {avgTpsText ? (
           <span
-            className={`inline-flex min-w-0 shrink-0 items-center gap-0.5 rounded-full border border-border bg-surface px-1.5 py-px font-medium leading-normal ${
-              signed ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-400"
-            }`}
-            title={
-              signed
-                ? intl.formatMessage({ id: "sidebar.signing.tooltip.signed" })
-                : intl.formatMessage(
-                    {
-                      id: "sidebar.signing.tooltip.unsigned",
-                    },
-                    { reason: clientSigning.reason ?? "" },
-                  )
-            }
-            data-signing-kind={clientSigning.kind}
+            className="whitespace-nowrap font-mono max-md:hidden"
+            title={intl.formatMessage({ id: "sessionStats.avgTps" }, { value: avgTpsText })}
           >
-            {signed ? (
-              <BadgeCheck className="size-3" aria-hidden="true" />
-            ) : (
-              <ShieldAlert className="size-3" aria-hidden="true" />
-            )}
-            <span className="truncate">
-              {intl.formatMessage({
-                id: signed ? "sidebar.signing.signed" : "sidebar.signing.unsigned",
-              })}
-            </span>
+            {avgTpsText} tok/s
           </span>
+        ) : null}
+        {inputText ? (
+          <span
+            className="whitespace-nowrap font-mono max-md:hidden"
+            title={intl.formatMessage({ id: "sessionStats.input" }, { value: inputText })}
+          >
+            ↑{inputText}
+          </span>
+        ) : null}
+        {outputText ? (
+          <span
+            className="whitespace-nowrap font-mono max-md:hidden"
+            title={intl.formatMessage({ id: "sessionStats.output" }, { value: outputText })}
+          >
+            ↓{outputText}
+          </span>
+        ) : null}
+        {clientSigning ? (
+          <SigningBadge kind={clientSigning.kind} reason={clientSigning.reason} />
         ) : null}
       </div>
     </div>
