@@ -4436,6 +4436,7 @@ const zhCN: Record<string, string> = {
   "developerTools.network.signing.kind.request_failed_closed": "签名错误终止",
   "developerTools.network.signing.reason": "原因",
   "developerTools.network.signing.attempt": "签名轮次",
+  "developerTools.network.signing.gatewayEcho": "网关验签",
   "chat.contextCompaction.started": "正在压缩上下文",
   "chat.contextCompaction.retrying": "正在重试压缩上下文（{attempt}/{maxAttempts}）",
   "chat.contextCompaction.skipped": "上下文已是最新，无需压缩",

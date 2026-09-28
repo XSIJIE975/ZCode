@@ -81,6 +81,19 @@ function isSigningAttentionKind(kind: string): boolean {
   return kind !== "signed_sent";
 }
 
+/**
+ * 网关在响应里回显的验签结论（x-client-sign-verified）。
+ * 它是「服务端是否认可本次签名」的唯一客户端可见证据：
+ * 出现且非空 = 网关已验签；未出现 = 该请求未签名或网关未回显。
+ */
+function readGatewayVerifyEcho(responseHeaders: Record<string, string>): string | undefined {
+  const entry = Object.entries(responseHeaders).find(
+    ([key]) => key.toLowerCase() === "x-client-sign-verified",
+  );
+  const value = entry?.[1]?.trim();
+  return value ? value : undefined;
+}
+
 function HeaderDetails({
   title,
   headers,
@@ -262,124 +275,144 @@ export function DeveloperToolsPane({
             </div>
           ) : (
             <div className="space-y-2">
-              {networkEntries.map((entry) => (
-                <div
-                  key={entry.eventKey}
-                  className="overflow-hidden rounded-md border border-border"
-                >
-                  <div className="space-y-2 px-3 py-2">
-                    <div className="flex min-w-0 items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-ui-base font-semibold text-foreground">
-                          {intl.formatMessage({ id: networkStatusLabelId(entry.statusType) })}
+              {networkEntries.map((entry) => {
+                const gatewayVerifyEcho = readGatewayVerifyEcho(entry.responseHeaders);
+                return (
+                  <div
+                    key={entry.eventKey}
+                    className="overflow-hidden rounded-md border border-border"
+                  >
+                    <div className="space-y-2 px-3 py-2">
+                      <div className="flex min-w-0 items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-ui-base font-semibold text-foreground">
+                            {intl.formatMessage({ id: networkStatusLabelId(entry.statusType) })}
+                          </div>
+                          <div className="truncate font-mono text-ui-xs text-foreground-subtle">
+                            {entry.requestId ?? entry.eventKey}
+                          </div>
                         </div>
-                        <div className="truncate font-mono text-ui-xs text-foreground-subtle">
-                          {entry.requestId ?? entry.eventKey}
+                        <div className="shrink-0 font-mono text-ui-xs text-foreground-subtle">
+                          {formatTimestamp(locale, entry.timestamp, entry.recordedAt)}
                         </div>
                       </div>
-                      <div className="shrink-0 font-mono text-ui-xs text-foreground-subtle">
-                        {formatTimestamp(locale, entry.timestamp, entry.recordedAt)}
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-ui-xs text-foreground-subtle">
+                        <span>{intl.formatMessage({ id: "developerTools.network.model" })}</span>
+                        <span className="min-w-0 truncate font-mono text-foreground">
+                          {entry.modelId ?? "-"}
+                        </span>
+                        <span>{intl.formatMessage({ id: "developerTools.network.provider" })}</span>
+                        <span className="min-w-0 truncate font-mono text-foreground">
+                          {entry.providerId ?? entry.providerKind ?? "-"}
+                        </span>
+                        {entry.clientSigning ? (
+                          <>
+                            <span>
+                              {intl.formatMessage({ id: "developerTools.network.signing" })}
+                            </span>
+                            <span
+                              className="min-w-0 truncate font-mono"
+                              data-testid="developer-tools-signing-kind"
+                              data-signing-attention={
+                                isSigningAttentionKind(entry.clientSigning.kind) ? "true" : "false"
+                              }
+                            >
+                              {intl.formatMessage({
+                                id: signingKindLabelId(entry.clientSigning.kind),
+                              })}
+                            </span>
+                            {entry.clientSigning.reason ? (
+                              <>
+                                <span>
+                                  {intl.formatMessage({
+                                    id: "developerTools.network.signing.reason",
+                                  })}
+                                </span>
+                                <span className="min-w-0 truncate font-mono text-foreground">
+                                  {entry.clientSigning.reason}
+                                </span>
+                              </>
+                            ) : null}
+                            {entry.clientSigning.signedAttempt !== undefined ? (
+                              <>
+                                <span>
+                                  {intl.formatMessage({
+                                    id: "developerTools.network.signing.attempt",
+                                  })}
+                                </span>
+                                <span className="font-mono text-foreground">
+                                  {entry.clientSigning.signedAttempt}
+                                </span>
+                              </>
+                            ) : null}
+                          </>
+                        ) : null}
+                        {gatewayVerifyEcho ? (
+                          <>
+                            <span>
+                              {intl.formatMessage({
+                                id: "developerTools.network.signing.gatewayEcho",
+                              })}
+                            </span>
+                            <span
+                              className="font-mono text-green-600 dark:text-green-400"
+                              data-testid="developer-tools-signing-gateway-echo"
+                            >
+                              {gatewayVerifyEcho}
+                            </span>
+                          </>
+                        ) : null}
+                        <span>{intl.formatMessage({ id: "developerTools.network.attempt" })}</span>
+                        <span className="font-mono text-foreground">
+                          {entry.attempt !== undefined && entry.maxAttempts !== undefined
+                            ? `${entry.attempt}/${entry.maxAttempts === 0 ? "∞" : entry.maxAttempts}`
+                            : "-"}
+                        </span>
+                        <span>{intl.formatMessage({ id: "developerTools.network.http" })}</span>
+                        <span className="font-mono text-foreground">
+                          {formatNumber(locale, entry.statusCode)}
+                        </span>
+                        <span>{intl.formatMessage({ id: "developerTools.network.duration" })}</span>
+                        <span className="font-mono text-foreground">
+                          {formatMilliseconds(locale, entry.durationMs ?? entry.idleMs)}
+                        </span>
+                        <span>
+                          {intl.formatMessage({ id: "developerTools.network.retryDelay" })}
+                        </span>
+                        <span className="font-mono text-foreground">
+                          {formatMilliseconds(locale, entry.delayMs)}
+                        </span>
                       </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-ui-xs text-foreground-subtle">
-                      <span>{intl.formatMessage({ id: "developerTools.network.model" })}</span>
-                      <span className="min-w-0 truncate font-mono text-foreground">
-                        {entry.modelId ?? "-"}
-                      </span>
-                      <span>{intl.formatMessage({ id: "developerTools.network.provider" })}</span>
-                      <span className="min-w-0 truncate font-mono text-foreground">
-                        {entry.providerId ?? entry.providerKind ?? "-"}
-                      </span>
-                      {entry.clientSigning ? (
-                        <>
-                          <span>
-                            {intl.formatMessage({ id: "developerTools.network.signing" })}
-                          </span>
-                          <span
-                            className="min-w-0 truncate font-mono"
-                            data-testid="developer-tools-signing-kind"
-                            data-signing-attention={
-                              isSigningAttentionKind(entry.clientSigning.kind) ? "true" : "false"
-                            }
-                          >
-                            {intl.formatMessage({
-                              id: signingKindLabelId(entry.clientSigning.kind),
-                            })}
-                          </span>
-                          {entry.clientSigning.reason ? (
-                            <>
-                              <span>
-                                {intl.formatMessage({
-                                  id: "developerTools.network.signing.reason",
-                                })}
-                              </span>
-                              <span className="min-w-0 truncate font-mono text-foreground">
-                                {entry.clientSigning.reason}
-                              </span>
-                            </>
-                          ) : null}
-                          {entry.clientSigning.signedAttempt !== undefined ? (
-                            <>
-                              <span>
-                                {intl.formatMessage({
-                                  id: "developerTools.network.signing.attempt",
-                                })}
-                              </span>
-                              <span className="font-mono text-foreground">
-                                {entry.clientSigning.signedAttempt}
-                              </span>
-                            </>
-                          ) : null}
-                        </>
+                      {entry.baseURL ? (
+                        <div className="min-w-0 truncate font-mono text-ui-xs text-foreground-subtle">
+                          {entry.baseURL}
+                        </div>
                       ) : null}
-                      <span>{intl.formatMessage({ id: "developerTools.network.attempt" })}</span>
-                      <span className="font-mono text-foreground">
-                        {entry.attempt !== undefined && entry.maxAttempts !== undefined
-                          ? `${entry.attempt}/${entry.maxAttempts === 0 ? "∞" : entry.maxAttempts}`
-                          : "-"}
-                      </span>
-                      <span>{intl.formatMessage({ id: "developerTools.network.http" })}</span>
-                      <span className="font-mono text-foreground">
-                        {formatNumber(locale, entry.statusCode)}
-                      </span>
-                      <span>{intl.formatMessage({ id: "developerTools.network.duration" })}</span>
-                      <span className="font-mono text-foreground">
-                        {formatMilliseconds(locale, entry.durationMs ?? entry.idleMs)}
-                      </span>
-                      <span>{intl.formatMessage({ id: "developerTools.network.retryDelay" })}</span>
-                      <span className="font-mono text-foreground">
-                        {formatMilliseconds(locale, entry.delayMs)}
-                      </span>
+                      {entry.message ? (
+                        <div className="break-words rounded-md bg-surface px-2 py-1.5 text-ui-xs text-foreground">
+                          {entry.message}
+                        </div>
+                      ) : null}
                     </div>
-                    {entry.baseURL ? (
-                      <div className="min-w-0 truncate font-mono text-ui-xs text-foreground-subtle">
-                        {entry.baseURL}
-                      </div>
-                    ) : null}
-                    {entry.message ? (
-                      <div className="break-words rounded-md bg-surface px-2 py-1.5 text-ui-xs text-foreground">
-                        {entry.message}
-                      </div>
-                    ) : null}
+                    <HeaderDetails
+                      title={intl.formatMessage(
+                        { id: "developerTools.network.requestHeaders" },
+                        { count: formatNumber(locale, entry.requestHeaderCount) },
+                      )}
+                      headers={entry.requestHeaders}
+                      emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
+                    />
+                    <HeaderDetails
+                      title={intl.formatMessage(
+                        { id: "developerTools.network.responseHeaders" },
+                        { count: formatNumber(locale, entry.responseHeaderCount) },
+                      )}
+                      headers={entry.responseHeaders}
+                      emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
+                    />
                   </div>
-                  <HeaderDetails
-                    title={intl.formatMessage(
-                      { id: "developerTools.network.requestHeaders" },
-                      { count: formatNumber(locale, entry.requestHeaderCount) },
-                    )}
-                    headers={entry.requestHeaders}
-                    emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
-                  />
-                  <HeaderDetails
-                    title={intl.formatMessage(
-                      { id: "developerTools.network.responseHeaders" },
-                      { count: formatNumber(locale, entry.responseHeaderCount) },
-                    )}
-                    headers={entry.responseHeaders}
-                    emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

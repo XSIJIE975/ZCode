@@ -121,3 +121,44 @@ core 日志、v4 facts/projection 与 TUI 的显式忽略、桌面端开发者�
 - 私钥握手与 gate 均为网络新增调用，只在命中签名条件的 provider 上发生；失败路径全部 fail-open（未签名发送），不影响可用性。
 - 折算比例本身（0.67）与服务端 gate 开关（`codingPlanSignature.enable`）由服务端控制，客户端无法也不应本地配置。
 - `apiKey` 非 `id.secret` 形态且 gate 开启时会 fail-closed——与发行版一致（普通 `sk-` Key 的 provider 通常不在官方域，不会进入签名分支）。
+
+## 七、补充逆向：Start Plan 的 3007「captcha verify failed」（Trust Build 套餐门禁）
+
+### 现象
+
+开源版用 Start Plan 发消息直接失败：`provider_code=3007 reason=auth_failed status=400`，
+错误体 `captcha verify failed`，请求 URL `https://zcode.z.ai/api/v1/zcode-plan/anthropic`。
+同一账号在官方发行版上正常。控制台 billing/balance 返回的套餐名为
+**`zcode-v3-start-plan-trust-0928`（"ZCode Trust Build"）**——服务端侧该套餐绑定
+官方可信构建，模型请求经网关反滥用校验（阿里云验证码）后才放行。
+
+### 发行版完整流程（自 bundle 还原）
+
+```
+模型请求（start-plan，经 zcode-plan 网关）
+ → 网关返回 3007 / captcha verify failed
+ → CaptchaRequestRetry.claim()：仅当 access 为 zhipu-account 且 mode=start-plan、
+   请求带 refreshRuntimeHeadersBeforeAttempt（账号型模型）、且该请求未用过重试机会
+   → 占用一次额外物理尝试（不占普通 retry 预算）
+ → 重试前调用 refreshRuntimeHeadersBeforeAttempt({reason:"captcha-retry"})：
+   Host 侧弹阿里云验证码（渲染端加载 https://o.alicdn.com/captcha-frontend/
+   aliyunCaptcha/AliyunCaptcha.js，结果含 captchaVerifyParam / certifyId，
+   支持 region），人机通过后返回请求头：
+   X-Aliyun-Captcha-Verify-Param + X-Aliyun-Captcha-Verify-Region
+ → 携带验证参数重发一次；验证参数在日志/调试面中被脱敏
+（sanitize 集合含 x-aliyun-captcha-verify-param / x-client-sig / x-client-pow）
+ → 错误码 coding_plan_security_verification_required 与该流程配套；
+   UI 文案：chat.error.action.retryCaptcha / chat.captcha.verifyFailed /
+   「验证码未完成导致无内容，重新发送会先运行验证码」
+```
+
+要点：这是**人机验证**而非静默签名——需要真人过验证码；发行版也不对
+start-plan 请求做 Client Request Signing（`requiresClientRequestSigning` 显式排除）。
+开源版 3007 直接报错的原因是缺少整套验证码 UI 与 captcha-retry 重试链路。
+
+### 移植所需（未包含在本分支）
+
+渲染端验证码弹层组件（AliyunCaptcha SDK 加载、按钮锚点、abort/超时层级）、
+Host 侧 captcha-retry 的 runtime headers 刷新协议（reason 枚举扩展）、
+`CaptchaRequestRetry` 单次额外尝试语义、3007 失败分类调整。属于独立的
+跨包特性（renderer + services/host + adapters），需要单独排期实现。
