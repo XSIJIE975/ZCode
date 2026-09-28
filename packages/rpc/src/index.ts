@@ -65,6 +65,8 @@ export {
   SocketProtocol,
   ProtocolMessageType,
   ProtocolMessage,
+  wrapNodeStyleMessagePort,
+  type NodeStyleMessagePort,
   MessagePortProtocol,
   type MessagePortLike,
   createQueuePair,

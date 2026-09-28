@@ -1,4 +1,4 @@
-import { MessagePortProtocol, ChannelClient } from "@zcode/rpc";
+import { MessagePortProtocol, ChannelClient, type MessagePortLike } from "@zcode/rpc";
 import type { IServiceAccessor } from "@zcode/services";
 import { RemoteServiceAccess } from "./remoteServiceAccess.js";
 import { isRendererProductionBuild } from "./rendererLoggingEnv.js";
@@ -23,7 +23,11 @@ export interface MessagePortServiceConnection {
  * 否则旧 attachment 上的挂起 RPC 无法 settle，并会继续占用上层去重状态。
  */
 export function createMessagePortServiceConnection(
-  port: MessagePort,
+  /**
+   * 收 MessagePortLike 而不是 DOM MessagePort：桌面 main 侧拿到的是 Electron
+   * MessagePortMain（Node 风格），适配器产出的同样是 MessagePortLike。
+   */
+  port: MessagePortLike,
 ): MessagePortServiceConnection {
   logMessagePortDebug("[messageport] creating protocol and client...");
   const protocol = new MessagePortProtocol(port);
@@ -54,6 +58,6 @@ export function createMessagePortServiceConnection(
  * Desktop 模式下，utilityProcess（或 main 进程的远程代理）通过 MessagePort
  * 暴露 ChannelServer，renderer 用此函数建立 ChannelClient 连接。
  */
-export function connectViaMessagePort(port: MessagePort): IServiceAccessor {
+export function connectViaMessagePort(port: MessagePortLike): IServiceAccessor {
   return createMessagePortServiceConnection(port).services;
 }

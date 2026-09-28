@@ -14,6 +14,7 @@ import type {
 } from "./mcp.js";
 import type { OAuthStateRegistration } from "./oauth.js";
 import type { AppSettings, Locale } from "./protocol.js";
+import type { WebRemoteControlStatus } from "./webRemoteControl.js";
 import type { ArmsCustomEventPayload, RendererTelemetryEventPayload } from "./telemetry.js";
 import type {
   RendererActionTraceBatchV1,
@@ -899,8 +900,18 @@ export interface IPlatformService {
   /** 注册自动更新持续状态变化的回调，返回 disposer */
   onUpdateStateChanged?(callback: (payload: UpdateStatePayload) => void): () => void;
 
-  /** 主动读取当前自动更新状态，用于菜单打开时补偿异步事件丢失 */
+  /** 主动读取当前自动更新状态，用于菜单打开时补偿异步更新弹窗丢失 */
   getUpdateState?(): Promise<UpdateStatePayload>;
+
+  /**
+   * 移动端远程控制（外部中继）。全部为可选成员：Web 构建没有设备端，
+   * 缺省时 UI 不渲染该入口，而不是让 web 侧伪造成功。
+   */
+  enableWebRemoteControl?(): Promise<WebRemoteControlStatus>;
+  disableWebRemoteControl?(): Promise<WebRemoteControlStatus>;
+  getWebRemoteControlStatus?(): Promise<WebRemoteControlStatus>;
+  resetWebRemoteControlPairing?(): Promise<WebRemoteControlStatus>;
+  onWebRemoteControlStatusChanged?(callback: (payload: WebRemoteControlStatus) => void): () => void;
 
   /** 用户在更新弹窗中确认开始下载当前已发现版本 */
   downloadUpdate(): Promise<void>;

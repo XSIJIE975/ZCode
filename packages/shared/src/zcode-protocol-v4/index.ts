@@ -33,6 +33,7 @@ export * from "./profiles.js";
 export * from "./apply.js";
 export * from "./transport.js";
 export * from "./wire.js";
+export * from "./wire-binary.js";
 export * from "./wire-codec.js";
 export * from "./wire-reassembly.js";
 export * from "./wire-assembler.js";

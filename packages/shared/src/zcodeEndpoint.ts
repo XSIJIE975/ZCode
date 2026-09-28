@@ -39,6 +39,10 @@ export interface ZCodeEndpointUrls {
   zcodePlanAnthropicBaseUrl: string;
   zcodePlanBillingCurrentUrl: string;
   zcodePlanBillingBalanceUrl: string;
+  /** 移动端远程控制 relay 的 WebSocket 入口；协议头由 origin 推导，路径固定 /ws。 */
+  relayWsUrl: string;
+  /** relay 主机上的移动终端页面；当前 3.14.3 走 v4。 */
+  remoteUrl: string;
 }
 
 export interface RuntimeZCodeEndpointEnv {
@@ -259,6 +263,7 @@ export function resolveRuntimeProductEndpointConfig(
 
 export function buildZCodeEndpointUrls(origin: string): ZCodeEndpointUrls {
   const normalizedOrigin = normalizeZCodeEndpointOrigin(origin);
+  const parsed = new URL(normalizedOrigin);
   return {
     origin: normalizedOrigin,
     apiBaseUrl: `${normalizedOrigin}/api/v1`,
@@ -267,6 +272,10 @@ export function buildZCodeEndpointUrls(origin: string): ZCodeEndpointUrls {
     zcodePlanAnthropicBaseUrl: `${normalizedOrigin}/api/v1/zcode-plan/anthropic`,
     zcodePlanBillingCurrentUrl: `${normalizedOrigin}/api/v1/zcode-plan/billing/current`,
     zcodePlanBillingBalanceUrl: `${normalizedOrigin}/api/v1/zcode-plan/billing/balance`,
+    relayWsUrl: `${parsed.protocol === "https:" ? "wss" : "ws"}://${parsed.host}/ws`,
+    // 发行版按 appVersion 在 /remote/v3 与 /remote/v4 间切换，该判定条件未随源码交付；
+    // 实测当前 3.14.3 走 v4，故固定。
+    remoteUrl: `${normalizedOrigin}/remote/v4`,
   };
 }
 

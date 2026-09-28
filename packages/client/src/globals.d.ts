@@ -46,6 +46,7 @@ import type {
   UpdateCheckResultPayload,
   UpdateStatePayload,
   OpenInEditorOptions,
+  WebRemoteControlStatus,
 } from "@zcode/shared";
 
 /**
@@ -270,6 +271,13 @@ declare global {
       onUpdateStateChanged?(callback: (payload: UpdateStatePayload) => void): () => void;
       /** 主动读取当前自动更新状态 */
       getUpdateState?(): Promise<UpdateStatePayload>;
+      enableWebRemoteControl?(): Promise<WebRemoteControlStatus>;
+      disableWebRemoteControl?(): Promise<WebRemoteControlStatus>;
+      getWebRemoteControlStatus?(): Promise<WebRemoteControlStatus>;
+      resetWebRemoteControlPairing?(): Promise<WebRemoteControlStatus>;
+      onWebRemoteControlStatusChanged?(
+        callback: (payload: WebRemoteControlStatus) => void,
+      ): () => void;
       /** 开始下载当前已发现的更新 */
       downloadUpdate?(): Promise<void>;
       /** 取消当前正在下载的更新 */

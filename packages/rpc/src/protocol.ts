@@ -354,6 +354,43 @@ export interface MessagePortLike {
   close(): void;
 }
 
+/** Node/EventEmitter 风格的端口：Electron 的 MessagePortMain 与 utilityProcess 端口都是这个形状。 */
+export interface NodeStyleMessagePort {
+  on(event: "message", listener: (e: { data: MessagePortPayload }) => void): unknown;
+  off(event: "message", listener: (e: { data: MessagePortPayload }) => void): unknown;
+  postMessage(message: MessagePortPayload): void;
+  start(): void;
+  close(): void;
+}
+
+/**
+ * MessagePortLike 用 Web 标准风格（addEventListener），而 Electron 的 MessagePortMain 用
+ * Node EventEmitter 风格（on/off）。直接把它交给 MessagePortProtocol 会在构造时抛
+ * "this.port.addEventListener is not a function"，因此统一在这一层适配。
+ */
+export function wrapNodeStyleMessagePort(port: NodeStyleMessagePort): MessagePortLike {
+  return {
+    addEventListener(_type: "message", listener: (e: { data: MessagePortPayload }) => void): void {
+      port.on("message", listener);
+    },
+    removeEventListener(
+      _type: "message",
+      listener: (e: { data: MessagePortPayload }) => void,
+    ): void {
+      port.off("message", listener);
+    },
+    postMessage(message: MessagePortPayload): void {
+      port.postMessage(message);
+    },
+    start(): void {
+      port.start();
+    },
+    close(): void {
+      port.close();
+    },
+  };
+}
+
 /**
  * 在 MessagePort 上实现 IMessagePassingProtocol。
  * 这是最简单的传输实现——不需要分帧，因为 MessagePort 本身就是消息边界的。

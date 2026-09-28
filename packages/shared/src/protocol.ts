@@ -366,4 +366,12 @@ export interface AppSettings {
   settingsSyncFirstRunPromptHandled?: boolean;
   /** 设置页里的临时 endpoint override；正式/测试默认 base url 由 ZCODE_BASE_URL env 管理。 */
   zcodeEndpointOrigin?: string;
+  /** 外部中继设备配对身份；配对口令 pass_hash 属凭据，走 credentialService。 */
+  webRemoteControlExternalRelayDevice?: { deviceSid: string };
+  /** 上次启用远控的上下文，供启动恢复。 */
+  webRemoteControlLastEnabledContext?: {
+    workspacePath: string;
+    workspaceIdentity?: string;
+    initialTaskId?: string;
+  };
 }

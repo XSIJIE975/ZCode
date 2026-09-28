@@ -426,6 +426,11 @@ export const PlatformChannels = {
   MigrateLegacyCommonMcp: "zcode:migrate-legacy-common-mcp",
   /** Renderer → Main：获取当前设备的稳定标识符（deviceMid） */
   GetDeviceId: "zcode:get-device-id",
+  WebRemoteControlEnable: "zcode:web-remote-control-enable",
+  WebRemoteControlDisable: "zcode:web-remote-control-disable",
+  WebRemoteControlStatus: "zcode:web-remote-control-status",
+  WebRemoteControlResetPairing: "zcode:web-remote-control-reset-pairing",
+  WebRemoteControlStatusChanged: "zcode:web-remote-control-status-changed",
 } as const;
 
 export type PlatformChannelName = (typeof PlatformChannels)[keyof typeof PlatformChannels];

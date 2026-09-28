@@ -470,6 +470,16 @@ const appSettingsObjectSchema = z.object({
   receivePreviewUpdates: z.boolean().default(false),
   autoDownloadAndInstallUpdates: z.boolean().default(false),
   skippedElectronUpdateVersions: skippedElectronUpdateVersionsSchema,
+  // 移动端远程控制：只存中继下发的 deviceSid；pass_hash 属凭据，走 credentialService。
+  webRemoteControlExternalRelayDevice: z.object({ deviceSid: z.string().trim().min(1) }).optional(),
+  // 上次启用远控的上下文，供启动时恢复；与凭据无关。
+  webRemoteControlLastEnabledContext: z
+    .object({
+      workspacePath: z.string().trim().min(1),
+      workspaceIdentity: z.string().trim().min(1).optional(),
+      initialTaskId: z.string().trim().min(1).optional(),
+    })
+    .optional(),
   settingsSyncFirstRunPromptHandled: z.boolean().optional(),
   zcodeEndpointOrigin: zcodeEndpointOriginSchema.optional(),
 });
@@ -556,6 +566,14 @@ export const appSettingsPatchSchema = z.object({
   autoDownloadAndInstallUpdates: z.boolean().optional(),
   skippedElectronUpdateVersions: z
     .partialRecord(electronReleaseChannelSchema, nonEmptyStringSchema)
+    .optional(),
+  webRemoteControlExternalRelayDevice: z.object({ deviceSid: z.string().trim().min(1) }).optional(),
+  webRemoteControlLastEnabledContext: z
+    .object({
+      workspacePath: z.string().trim().min(1),
+      workspaceIdentity: z.string().trim().min(1).optional(),
+      initialTaskId: z.string().trim().min(1).optional(),
+    })
     .optional(),
   settingsSyncFirstRunPromptHandled: z.boolean().optional(),
   zcodeEndpointOrigin: zcodeEndpointOriginSchema.optional(),
