@@ -212,6 +212,7 @@ import type {
 } from "@/v4/legacyChatViewTypes.js";
 import type { SessionLease } from "@/v4/sessionDataLayer.js";
 import { V4InteractionDialogs } from "@/v4/V4InteractionDialogs.js";
+import { SessionStatsBar } from "@/v4/SessionStatsBar.js";
 import {
   useScopedConversationTelemetryForegroundEnabled,
   useScopedConversationTelemetrySupervisor,
@@ -4549,6 +4550,15 @@ export function SessionPane({
           remoteSessionId={remoteSessionId ?? undefined}
           provider={provider}
           snapshot={snapshot}
+        />
+      ) : null}
+      {/* 会话统计信息条：轮数/步数/tps/输入输出缓存/签名状态，置于输入框上方。 */}
+      {sessionId && !readOnly ? (
+        <SessionStatsBar
+          sessionId={sessionId}
+          workspacePath={workspacePath}
+          workspaceIdentity={workspaceIdentity}
+          active={Boolean(snapshot?.control.canStop)}
         />
       ) : null}
       {composerNode}

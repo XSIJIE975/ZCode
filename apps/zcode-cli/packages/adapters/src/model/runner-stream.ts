@@ -438,6 +438,15 @@ export async function* runStreamText(input: {
       }
 
       if (retryScheduledFromStreamChunk) {
+        // chunk 级错误重试不走本 attempt 的 failed 收口，先取出签名观测防滞留。
+        await publishClientSigningObservations({
+          attempt,
+          logger: input.logger,
+          request: attemptRequest,
+          resolved,
+          statusContext,
+          statusSink: input.statusSink,
+        });
         if (offPeakQueueHoldFromStreamChunk) {
           // 排队等待不消耗重试预算：回退计数让 for 自增后原地重试。
           attempt -= 1;
@@ -574,6 +583,15 @@ export async function* runStreamText(input: {
               statusSink: input.statusSink,
               streamOutputCommitted: false,
             });
+            // 本 attempt 不走 completed/failed 收口，观测必须在此取出，否则滞留 store。
+            await publishClientSigningObservations({
+              attempt,
+              logger: input.logger,
+              request: attemptRequest,
+              resolved,
+              statusContext,
+              statusSink: input.statusSink,
+            });
             continue;
           }
         }
@@ -642,6 +660,15 @@ export async function* runStreamText(input: {
           startedAt,
         });
       }
+      // emittedError 路径没有 completed/failed 收口；take 幂等，已发布过则空操作。
+      await publishClientSigningObservations({
+        attempt,
+        logger: input.logger,
+        request: attemptRequest,
+        resolved,
+        statusContext,
+        statusSink: input.statusSink,
+      });
       return;
     } catch (error) {
       attemptFailed = true;
@@ -664,6 +691,15 @@ export async function* runStreamText(input: {
       }
       if (error instanceof TerminalStreamChunkError) {
         awaitIteratorClose = true;
+        // 该分支在 catch 的失败发布点之前直接 rethrow，先取出签名观测防滞留。
+        await publishClientSigningObservations({
+          attempt,
+          logger: input.logger,
+          request: attemptRequest,
+          resolved,
+          statusContext,
+          statusSink: input.statusSink,
+        });
         throw error.adapterError;
       }
       if (
@@ -913,6 +949,15 @@ export async function* runStreamText(input: {
             },
             statusPublishOptions(input, admission),
           );
+          // cancelled 收口同样取出签名观测；take 幂等。
+          await publishClientSigningObservations({
+            attempt,
+            logger: input.logger,
+            request: attemptRequest,
+            resolved,
+            statusContext,
+            statusSink: input.statusSink,
+          });
         }
         if (attemptFailed && awaitIteratorClose) {
           await closeStreamIteratorBestEffort(streamIterator, {

@@ -65,5 +65,6 @@ function toModelClientSigningObservationStatus(
       ? { businessCode: observation.businessCode }
       : {}),
     ...(observation.headers ? { headers: { ...observation.headers } } : {}),
+    ...(observation.requestUrl !== undefined ? { requestUrl: observation.requestUrl } : {}),
   };
 }

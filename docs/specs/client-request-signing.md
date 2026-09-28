@@ -112,6 +112,20 @@ fetch(input, init)
    点击直接打开右侧面板的开发者工具 tab；右侧「+」菜单入口默认显示（显式写入
    `zcode:developer-tools:enabled=0/false/off/no` 才隐藏）；Coding Plan 请求在网络区
    伴随出现「客户端签名」条目：正常链路显示「已签名发送」。
-9. 侧边栏底部用户名旁常驻「签名状态」徽标：活跃会话产生签名观测后显示——
-   已签名 = 绿色对勾「已签名」；未签名/验签被拒/降级 = 黄色「未签名」，悬浮提示原因
-   与明细入口（`data-testid="sidebar-client-signing-badge"`）。
+9. 会话统计信息条（输入框上方常驻，`data-testid="session-stats-bar"`）展示轮数/步数/
+   上一轮与平均 tps/输入/输出/缓存读/命中率，右侧附签名状态徽标
+   （`data-testid="session-stats-signing-badge"`；原侧边栏底部徽标已移除）：
+   - live 数据来自 session-debug 快照（处理中 1s 刷新、空闲 5s）；快照新增
+     `latestClientSigning` 旁路指针，不随 networkEntries 窗口滑出而丢失。
+   - 持久数据来自 `v4/conversation/usage`（SQLite `model_usage`/`turn_usage` 聚合，
+     保留 30 天）：`turnCount`/`toolCallCount`/`lastRoundTokensPerSecond`/
+     `averageTokensPerSecond`/`mainTurn{Input,Output,CacheRead}Tokens`/
+     `lastClientSigning`。应用重启后打开历史会话仍能展示（轮/步/tps/累计/签名状态）。
+   - 签名结论随每次模型请求落库（`model_usage.client_signing_kind/reason`，
+     migration 0023），只存 kind/reason，签名头取值不落盘、不出远端流。
+10. 非法凭据（非 `id.secret` 形态且 gate 开启）：降级为未签名发送并记
+    `unsigned_sent(invalid_credential)`——官方域上用户自建 provider + 普通 `sk-` Key
+    的按量 API 用法不得被签名层硬失败（对发行版 fail-closed 语义的开源侧偏差，
+    属可用性修正）。
+11. gate 查询失败启用 30s 负缓存：端点故障期不再逐请求付出 15s gate 超时；
+    成功结论仍按 1h TTL 缓存（对发行版语义的开源侧可用性增补）。

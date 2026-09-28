@@ -1642,6 +1642,21 @@ export const zcodeTaskTokenUsageResultSchema = z
     modelRequestCount: z.number().int().nonnegative(),
     modelErrorCount: z.number().int().nonnegative(),
     inputBaselineBySource: z.record(z.string(), z.number().int().nonnegative()),
+    // 会话统计条扩展（与 v4/conversation/usage 同形）：轮数/步数/上一轮与平均 tps。
+    turnCount: z.number().int().nonnegative().optional(),
+    toolCallCount: z.number().int().nonnegative().optional(),
+    lastRoundTokensPerSecond: z.number().positive().optional(),
+    averageTokensPerSecond: z.number().positive().optional(),
+    mainTurnInputTokens: z.number().int().nonnegative().optional(),
+    mainTurnOutputTokens: z.number().int().nonnegative().optional(),
+    mainTurnCacheReadTokens: z.number().int().nonnegative().optional(),
+    lastClientSigning: z
+      .object({
+        kind: z.string().min(1),
+        reason: z.string().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type ZCodeTaskTokenUsageResult = z.infer<typeof zcodeTaskTokenUsageResultSchema>;

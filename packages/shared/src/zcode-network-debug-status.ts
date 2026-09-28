@@ -133,6 +133,7 @@ function clientSigningValue(value: unknown): ZCodeTaskNetworkDebugStatusClientSi
       ? { businessCode: record.businessCode }
       : {}),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    ...(stringValue(record.requestUrl) ? { requestUrl: stringValue(record.requestUrl) } : {}),
   };
 }
 

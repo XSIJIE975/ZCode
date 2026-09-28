@@ -918,6 +918,11 @@ export interface ModelUsageRecord {
   errorMessage?: string;
   rawUsage?: unknown;
   providerMetadata?: unknown;
+  /** 本请求的客户端签名结论（model_client_signing 观测），随用量事实持久化。 */
+  clientSigning?: {
+    kind: string;
+    reason?: string;
+  };
 }
 
 export interface TurnUsageRecord {
@@ -1065,6 +1070,24 @@ export interface TaskUsageQueryResult {
   modelRequestCount: number;
   modelErrorCount: number;
   inputBaselineBySource: Record<string, number>;
+  /** 会话内去重轮数（turn_usage 行数）。 */
+  turnCount: number;
+  /** 会话内累计工具调用步数（turn_usage.tool_call_count 汇总）。 */
+  toolCallCount: number;
+  /** 上一轮（最近一条 main_turn completed 请求）的净生成速度；无有效数据时缺省。 */
+  lastRoundTokensPerSecond?: number;
+  /** main_turn completed 请求的加权平均净生成速度（总输出/总净生成时长）；无有效数据时缺省。 */
+  averageTokensPerSecond?: number;
+  /** 以下三项为 main_turn completed 请求的原始累计（与增量 inputTokens 口径不同），
+   * 供会话统计条按「总输入/输出/缓存读」展示并计算命中率。 */
+  mainTurnInputTokens?: number;
+  mainTurnOutputTokens?: number;
+  mainTurnCacheReadTokens?: number;
+  /** 会话最近一次客户端签名结论（来自 model_usage 最新带签名行）；重启后仍可展示。 */
+  lastClientSigning?: {
+    kind: string;
+    reason?: string;
+  };
 }
 
 export interface UsageStorePort {

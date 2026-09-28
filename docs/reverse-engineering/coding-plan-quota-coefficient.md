@@ -177,6 +177,46 @@ baseURL origin 发起（`open.bigmodel.cn`），不受影响。
   `signed_sent` 轮次 1、HTTP 200、无 verify_rejected/bypass 观测——客户端侧全链路通。
 - 0.67 折算的业务确认仍需服务端侧证据（使用统计/余额对比），客户端可证的边界到此为止。
 
+## 八、派发审查与修复记录（2026-09-28 第二轮）
+
+三个并行审查（两份独立遗留问题审查 + 一份数据源/持久化调查）交叉验证，合并修复：
+
+**P1 修复**
+
+- 官方域自定义 provider + 普通 `sk-` Key：发行版矩阵会 fail-closed（硬失败）。
+  开源版允许该配置（按量 API），现降级 `unsigned_sent(invalid_credential)` 继续发送。
+- 签名观测收口补全：空 completion 重试（generate/stream）、chunk 级错误重试、
+  `emittedError` 提前返回、`TerminalStreamChunkError` rethrow、consumer 提前关闭的
+  cancelled 收口——这些路径原本跳过发布，观测滞留 store 且网络条目无签名结论；
+  均已补 `publishClientSigningObservations`（take 幂等）。
+- 仓内单测：`apps/zcode-cli/packages/adapters/test/client-request-signing.test.ts`
+  9 组（凭据解析、观测 store 环形淘汰、PoW 可验证性、gate 负缓存、gate 关闭、
+  签名 7 头 + requestUrl、401→重握手→bypass 时序、invalid_credential、判定矩阵）。
+
+**P2 修复**
+
+- gate 失败 30s 负缓存（故障期延迟放大）；`latestClientSigning` 旁路指针
+  （徽标不再随网络条目窗口滑出而消失）；`requestUrl` 观测（应用内可核验直连端点）；
+  scope key 对函数型 configUrl/headers 先归一化；signer 复用比较用 trim 后版本；
+  删除「网关验签回显」死特性（实测网关不回显）；非 https 官方域构造期抛错改为
+  降级直连并告警；重复 requestId 读取实现合并；签名头取值不进持久化与远端广播面
+  （落库只存 kind/reason）；tooltip 措辞与实测证据链对齐。
+- 徽标 1Hz 常驻轮询收敛：会话统计条处理中 1s / 空闲 5s 刷新。
+
+**已知保留偏差（记录不修）**
+
+- dispose 死代码（发行版同样无宿主挂钩）；共享 signing state（`AiSdkClientRequestSigningState`）
+  设计就绪但未接线（与发行版 CLI 一致）；usage 表 30 天保留期外的历史会话统计条
+  显示空；企业自建 `ZCODE_BASE_URL` 网关不再截获签名流量（直连是与发行版对齐的目的本身）。
+
+**会话统计信息条（新特性，同轮交付）**
+
+- 服务端：`queryTaskUsage` 扩展（turn/toolCall 计数、main_turn 口径 tps 与原始累计、
+  最近签名结论）；`v4/conversation/usage` 与 `session/usage` schema 同步扩字段。
+- UI：`SessionStatsBar` 置于输入框上方（与 Quota/Queue 横幅同一 bottom dock），
+  live（session-debug）+ 持久（conversationUsage）双源合成；冷启动历史会话由
+  持久数据补位。签名徽标从侧边栏底部迁入信息条。
+
 ## 八、Start Plan 的 3007「captcha verify failed」（Trust Build 套餐门禁）
 
 ### 现象

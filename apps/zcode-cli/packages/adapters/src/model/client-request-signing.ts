@@ -42,6 +42,12 @@ const CLIENT_SIGNING_HEADER_NAMES = [
   "X-Client-Sign-Verified",
 ] as const;
 const HANDSHAKE_REASON_PATTERN = /^HANDSHAKE_[A-Z_]+$/u;
+/**
+ * gate 查询失败（HTTP/业务码/超时/网络）的短负缓存：发行版对失败结果不缓存，
+ * 但端点故障时每个请求都要先付一次 15s gate 超时才 fail-open，退化不可接受；
+ * 30s 内直接沿用失败结论，属于开源侧可用性偏差（成功结果仍按 1h TTL 缓存）。
+ */
+const FEATURE_GATE_FAILURE_TTL_MS = 30_000;
 
 export type ClientSigningFetch = typeof globalThis.fetch;
 type SigningHeaders = Record<string, string>;
@@ -127,6 +133,8 @@ export interface ClientSigningObservation {
    * 要求完整展示，便于核对加签过程。不含 apiKey 本体。
    */
   headers?: Record<string, string>;
+  /** 本观测对应的实际发送端点（signer 所见 URL；签名链路不做网关改写即最终 URL）。 */
+  requestUrl?: string;
 }
 
 export interface ClientSigningObserverInput {
@@ -246,6 +254,9 @@ export class CodingPlanSignatureFeatureGate {
       : await this.requestPromise;
     if (result.cacheable) {
       this.snapshot = { enabled: result.enabled, expiresAt: this.now() + this.cacheTtlMs };
+    } else if (!this.snapshot) {
+      // 失败负缓存：只在没有更新结论时垫一个短 TTL 的关闭态，避免故障期逐请求重查。
+      this.snapshot = { enabled: false, expiresAt: this.now() + FEATURE_GATE_FAILURE_TTL_MS };
     }
     return result.enabled;
   }
@@ -369,9 +380,13 @@ export function clientRequestSigningFeatureScopeKey(input: {
   headers: SigningHeaders | (() => SigningHeaders);
   network: { caCertFile?: string; httpProxy?: string; noProxy?: string };
 }): string {
+  // 函数型取值先归一化再参与序列化，否则 JSON.stringify 会静默丢弃函数，
+  // 不同配置折叠成同一 scope key、复用错误的 gate。
+  const configUrl = typeof input.configUrl === "function" ? input.configUrl() : input.configUrl;
+  const headers = typeof input.headers === "function" ? input.headers() : input.headers;
   return JSON.stringify({
-    configUrl: input.configUrl,
-    headers: Object.entries(input.headers).sort(([left], [right]) => left.localeCompare(right)),
+    configUrl,
+    headers: Object.entries(headers).sort(([left], [right]) => left.localeCompare(right)),
     network: {
       caCertFile: input.network.caCertFile,
       httpProxy: input.network.httpProxy,
@@ -621,6 +636,12 @@ export class ClientRequestSigningSigner {
         if (request.signal?.aborted) throw error;
         return await this.sendUnsigned(request, "feature_gate_unavailable");
       }
+      // 凭据不是 id.secret 形态时降级为未签名发送。发行版此处 fail-closed，
+      // 但开源版允许在官方域上配置自定义 provider + 普通 sk- Key（按量 API），
+      // 硬失败会破坏既有可用配置；Coding Plan 凭据恒为 id.secret，不受影响。
+      if (!parseClientSigningCredential(this.apiKey)) {
+        return await this.sendUnsigned(request, "invalid_credential");
+      }
       let key = await this.getKeyOrSendUnsigned(request);
       if (key instanceof Response) return key;
       let response = await this.sendSigned(request, key, 1);
@@ -736,12 +757,13 @@ export class ClientRequestSigningSigner {
         "x-client-pow": proofOfWork,
         "x-session-id": sessionId,
       },
+      requestUrl: request.url,
     });
     return this.transport(request.url, buildSigningRequestInit(request, headers));
   }
 
   private sendUnsigned(request: ReplayableSigningRequest, reason: string): Promise<Response> {
-    this.observe(request, { kind: "unsigned_sent", reason });
+    this.observe(request, { kind: "unsigned_sent", reason, requestUrl: request.url });
     return this.transport(request.url, buildSigningRequestInit(request, stripSigningHeaders(request.headers)));
   }
 
@@ -944,7 +966,9 @@ export class ClientRequestSigningManager {
     config: ClientRequestSigningSignerConfig,
     transport: ClientSigningFetch,
   ): ClientRequestSigningSigner {
-    const clientVersion = config.clientVersion ?? DEFAULT_CLIENT_SIGNING_VERSION;
+    // 比较与生效统一用 trim 后取值，否则同一版本的空白变体会被误判为配置变更，
+    // 反复 dispose+重建 signer（bypass 世代被意外重置、自持 keyState 丢失）。
+    const clientVersion = config.clientVersion?.trim() || DEFAULT_CLIENT_SIGNING_VERSION;
     const current = this.entries.get(config.providerId);
     if (
       current?.apiKey === config.apiKey &&

@@ -280,6 +280,8 @@ export interface ModelClientSigningObservationStatus {
   businessCode?: number | string;
   /** signed_sent 时本请求签名头取值（逐请求变化，非长期凭据）。 */
   headers?: Record<string, string>;
+  /** 本观测对应的实际发送端点（直连证据；签名链路不做网关改写即最终 URL）。 */
+  requestUrl?: string;
 }
 
 export interface ModelClientSigningStatusEvent extends ModelNetworkStatusBase {
@@ -1107,6 +1109,7 @@ export const modelNetworkStatusEventJsonSchema = {
           type: "object",
           additionalProperties: { type: "string" },
         },
+        requestUrl: { type: "string" },
       },
     },
   },

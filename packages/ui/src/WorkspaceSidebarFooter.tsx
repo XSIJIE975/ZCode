@@ -50,7 +50,6 @@ import {
   WorkspaceSidebarFooterUsageSummaryContent,
   useWorkspaceSidebarFooterUsageSummaryState,
 } from "@/WorkspaceSidebarFooterUsageSummary.js";
-import { WorkspaceSidebarFooterClientSigningBadge } from "@/WorkspaceSidebarFooterClientSigningBadge.js";
 
 const DESKTOP_ZOOM_MIN_LEVEL = -3;
 const DESKTOP_ZOOM_MAX_LEVEL = 5;
@@ -167,11 +166,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
             {profileBadge}
           </span>
           {user ? <WorkspaceSidebarFooterPlanBadge state={usageSummaryState} /> : null}
-          <WorkspaceSidebarFooterClientSigningBadge
-            activeTaskId={activeTaskId}
-            workspacePath={workspacePath}
-            workspaceIdentity={workspaceIdentity}
-          />
         </div>
       </div>
     </>

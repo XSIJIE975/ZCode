@@ -34,6 +34,7 @@ const debugClientSigningSchema = z
     httpStatus: count.optional(),
     businessCode: z.union([count, z.string()]).optional(),
     headers: z.record(z.string(), z.string()).optional(),
+    requestUrl: z.string().optional(),
   })
   .strict();
 export const sessionDebugNetworkEntrySchema = z
@@ -90,6 +91,8 @@ export const sessionDebugSnapshotSchema = z
       })
       .strict()
       .nullable(),
+    /** 最近一次签名结论的旁路指针：不随 networkEntries 窗口滑出而丢失，供常驻徽标使用。 */
+    latestClientSigning: debugClientSigningSchema.optional(),
   })
   .strict();
 export type SessionDebugSnapshot = z.infer<typeof sessionDebugSnapshotSchema>;

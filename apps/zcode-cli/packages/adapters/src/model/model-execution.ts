@@ -38,6 +38,7 @@ import {
   type ClientSigningObservationKind,
   type CodingPlanSignatureFeatureGateResult,
   clientRequestSigningFeatureScopeKey,
+  readClientSigningRequestId,
 } from "./client-request-signing.js";
 
 export type AiSdkProviderKind = "openai" | "anthropic" | "openai-compatible";
@@ -309,7 +310,7 @@ export class AiSdkModelExecution {
    */
   private createAccessModeUnsignedFetch(providerId: string, transport: ProviderFetch): ProviderFetch {
     return (input, init) => {
-      const requestId = readSigningRequestId(input, init);
+      const requestId = readClientSigningRequestId(input, init);
       const observation: ClientSigningObservation = { kind: "unsigned_sent", reason: "access_mode" };
       if (requestId) {
         this.clientSigningObservations.record(requestId, observation);
@@ -548,17 +549,29 @@ export class AiSdkModelExecution {
     const baseURL = providerConfig.baseURL;
     if (!baseURL) return transport;
     // 客户端版本优先取归一化的默认来源头；缺失时退回协议占位版本。
-    return this.signingManager.createFetch(
-      {
-        apiKey: apiKey ?? "",
+    try {
+      return this.signingManager.createFetch(
+        {
+          apiKey: apiKey ?? "",
+          baseURL,
+          clientVersion:
+            readHeaderValue(providerConfig.headers, "X-ZCode-App-Version") ??
+            DEFAULT_CLIENT_SIGNING_VERSION,
+          providerId,
+        },
+        transport as ClientSigningFetch,
+      ) as ProviderFetch;
+    } catch (error) {
+      // 非 https 的官方域 baseURL 会让 signer 在构造期抛 invalid-config 并击穿
+      // 模型解析；这里退回直连未签名，保持请求可用（发行版同样会抛，开源侧选择不回归）。
+      this.logger?.warn("Client request signer unavailable, sending direct", {
         baseURL,
-        clientVersion:
-          readHeaderValue(providerConfig.headers, "X-ZCode-App-Version") ??
-          DEFAULT_CLIENT_SIGNING_VERSION,
+        event: "model.client_signing.signer_unavailable",
+        errorMessage: error instanceof Error ? error.message : String(error),
         providerId,
-      },
-      transport as ClientSigningFetch,
-    ) as ProviderFetch;
+      });
+      return transport;
+    }
   }
 }
 
@@ -671,23 +684,6 @@ function resolveCodingPlanSignatureHeaders(
   config: CodingPlanSignatureRuntimeConfig,
 ): Record<string, string> {
   return typeof config.headers === "function" ? config.headers() : config.headers;
-}
-
-function readSigningRequestId(
-  input: Parameters<ProviderFetch>[0],
-  init?: Parameters<ProviderFetch>[1],
-): string | undefined {
-  const headers =
-    init?.headers === undefined
-      ? undefined
-      : init.headers instanceof Headers
-        ? init.headers
-        : new Headers(init.headers);
-  const requestId = (
-    (headers?.get("x-request-id") ?? (input instanceof Request ? input.headers.get("x-request-id") : null))
-      ?.trim() || undefined
-  );
-  return requestId;
 }
 
 function applyModelRequestAuth(

@@ -2921,6 +2921,8 @@ export async function getTaskTokenUsage(
       modelRequestCount: 0,
       modelErrorCount: 0,
       inputBaselineBySource: {},
+      turnCount: 0,
+      toolCallCount: 0,
     };
   }
 
@@ -2938,6 +2940,22 @@ export async function getTaskTokenUsage(
     modelRequestCount: usage.modelRequestCount,
     modelErrorCount: usage.modelErrorCount,
     inputBaselineBySource: usage.inputBaselineBySource,
+    turnCount: usage.turnCount,
+    toolCallCount: usage.toolCallCount,
+    ...(usage.lastRoundTokensPerSecond !== undefined
+      ? { lastRoundTokensPerSecond: usage.lastRoundTokensPerSecond }
+      : {}),
+    ...(usage.averageTokensPerSecond !== undefined
+      ? { averageTokensPerSecond: usage.averageTokensPerSecond }
+      : {}),
+    ...(usage.mainTurnInputTokens !== undefined
+      ? {
+          mainTurnInputTokens: usage.mainTurnInputTokens,
+          mainTurnOutputTokens: usage.mainTurnOutputTokens,
+          mainTurnCacheReadTokens: usage.mainTurnCacheReadTokens,
+        }
+      : {}),
+    ...(usage.lastClientSigning ? { lastClientSigning: usage.lastClientSigning } : {}),
   };
 }
 

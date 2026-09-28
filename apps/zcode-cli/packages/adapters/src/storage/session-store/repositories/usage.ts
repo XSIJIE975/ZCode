@@ -69,13 +69,16 @@ export async function recordModelUsage(db: DatabaseSync, input: ModelUsageRecord
         error_code,
         error_message,
         raw_usage_json,
-        provider_metadata_json
+        provider_metadata_json,
+        client_signing_kind,
+        client_signing_reason
       )
       values (
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?
       )
       on conflict(id) do update set
         logical_request_id = excluded.logical_request_id,
@@ -116,7 +119,9 @@ export async function recordModelUsage(db: DatabaseSync, input: ModelUsageRecord
         error_code = excluded.error_code,
         error_message = excluded.error_message,
         raw_usage_json = excluded.raw_usage_json,
-        provider_metadata_json = excluded.provider_metadata_json
+        provider_metadata_json = excluded.provider_metadata_json,
+        client_signing_kind = excluded.client_signing_kind,
+        client_signing_reason = excluded.client_signing_reason
       `,
   ).run(
     input.id,
@@ -159,6 +164,8 @@ export async function recordModelUsage(db: DatabaseSync, input: ModelUsageRecord
     input.errorMessage ?? null,
     encodeJson(input.rawUsage),
     encodeJson(input.providerMetadata),
+    input.clientSigning?.kind ?? null,
+    input.clientSigning?.reason ?? null,
   );
   await pruneUsage(db);
 }
@@ -603,7 +610,9 @@ export async function queryTaskUsage(
          cache_creation_input_tokens as cacheCreationTokens,
          cache_read_input_tokens as cacheReadTokens,
          computed_total_tokens as computedTotalTokens,
-         provider_total_tokens as providerTotalTokens
+         provider_total_tokens as providerTotalTokens,
+         duration_ms as durationMs,
+         time_to_first_token_ms as timeToFirstTokenMs
        from model_usage
        where session_id = ?
        order by started_at asc, id asc`,
@@ -612,13 +621,38 @@ export async function queryTaskUsage(
     cacheCreationTokens: number;
     cacheReadTokens: number;
     computedTotalTokens: number;
+    durationMs: number | null;
     inputTokens: number;
     outputTokens: number;
     providerTotalTokens: number | null;
     querySource: string;
     reasoningTokens: number;
     status: string;
+    timeToFirstTokenMs: number | null;
   }>;
+  // 轮数与步数来自 turn_usage（每 (session_id, turn_id) 一行，tool_call_count
+  // 为该轮累计工具调用数）；与 model_usage 的请求数口径不同，不能互相替代。
+  const turnStats = db
+    .prepare(
+      `select
+         count(*) as turnCount,
+         coalesce(sum(tool_call_count), 0) as toolCallCount
+       from turn_usage
+       where session_id = ?`,
+    )
+    .get(input.sessionID) as { turnCount: number; toolCallCount: number };
+  // 最近一次签名结论：跨重启展示用（会话统计条/签名徽标），只取 kind/reason。
+  const lastSigningRow = db
+    .prepare(
+      `select
+         client_signing_kind as kind,
+         client_signing_reason as reason
+       from model_usage
+       where session_id = ? and client_signing_kind is not null
+       order by started_at desc, id desc
+       limit 1`,
+    )
+    .get(input.sessionID) as { kind: string; reason: string | null } | undefined;
 
   let totalTokens = 0;
   let inputTokens = 0;
@@ -628,6 +662,16 @@ export async function queryTaskUsage(
   let cacheReadTokens = 0;
   let modelErrorCount = 0;
   const inputBaselineBySource: Record<string, number> = {};
+  // tps 口径与 session-debug 的 rounds 一致：只统计 main_turn 且 completed 的请求，
+  // 净生成时长 = duration - TTFT（首 token 前的排队不计入生成速度）。
+  let generationOutputTokens = 0;
+  let generationDurationMs = 0;
+  let lastRoundTokensPerSecond: number | undefined;
+  // main_turn completed 的原始累计（未做 baseline 增量折算），供统计条展示与命中率。
+  let mainTurnCount = 0;
+  let mainTurnInputTokens = 0;
+  let mainTurnOutputTokens = 0;
+  let mainTurnCacheReadTokens = 0;
 
   for (const row of rows) {
     const rawTotalTokens = Number(row.providerTotalTokens ?? row.computedTotalTokens ?? 0);
@@ -657,6 +701,21 @@ export async function queryTaskUsage(
     if (row.status === "error") {
       modelErrorCount += 1;
     }
+    if (row.querySource === "main_turn" && row.status === "completed") {
+      mainTurnCount += 1;
+      mainTurnInputTokens += inputSideTokens;
+      mainTurnOutputTokens += rowOutputTokens;
+      mainTurnCacheReadTokens += Number(row.cacheReadTokens ?? 0);
+      const duration = Number(row.durationMs ?? 0);
+      const timeToFirstToken = Number(row.timeToFirstTokenMs ?? 0);
+      const rowGenerationMs = Math.max(0, duration - timeToFirstToken);
+      if (rowGenerationMs > 0) {
+        generationOutputTokens += rowOutputTokens;
+        generationDurationMs += rowGenerationMs;
+        // rows 按 started_at 升序，最后一次赋值即最新一轮的有效速度。
+        lastRoundTokensPerSecond = (rowOutputTokens * 1000) / rowGenerationMs;
+      }
+    }
   }
 
   return {
@@ -670,6 +729,23 @@ export async function queryTaskUsage(
     modelRequestCount: rows.length,
     modelErrorCount,
     inputBaselineBySource,
+    turnCount: Number(turnStats?.turnCount ?? 0),
+    toolCallCount: Number(turnStats?.toolCallCount ?? 0),
+    ...(lastRoundTokensPerSecond !== undefined ? { lastRoundTokensPerSecond } : {}),
+    ...(generationDurationMs > 0
+      ? { averageTokensPerSecond: (generationOutputTokens * 1000) / generationDurationMs }
+      : {}),
+    ...(mainTurnCount > 0
+      ? { mainTurnInputTokens, mainTurnOutputTokens, mainTurnCacheReadTokens }
+      : {}),
+    ...(lastSigningRow
+      ? {
+          lastClientSigning: {
+            kind: lastSigningRow.kind,
+            ...(lastSigningRow.reason ? { reason: lastSigningRow.reason } : {}),
+          },
+        }
+      : {}),
   };
 }
 

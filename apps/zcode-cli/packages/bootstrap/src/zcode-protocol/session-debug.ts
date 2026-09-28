@@ -79,6 +79,9 @@ export function observeSessionDebug(record: SessionRecord, event: SessionEvent):
   const recordedAt = Number.isFinite(parsedAt) ? parsedAt : event.timestamp.getTime();
   const state = observation.snapshot;
   if (mapped.statusType === "model_client_signing" && entry.clientSigning) {
+    // 旁路指针：记录最近一次签名结论，不随 networkEntries 窗口滑出而丢失，
+    // 常驻徽标/信息条据此展示（历史会话冷启动时为空，由持久化用量数据补位）。
+    state.latestClientSigning = entry.clientSigning;
     // 签名观测描述的是随请求携带的签名头与最终结果，并入同一 requestId 的
     // 最新请求条目展示，不再单独成行（用户在请求条目内直接看到签名状态）。
     // 同一请求多条观测按到达顺序覆盖，条目上保留最终结果。找不到对应请求

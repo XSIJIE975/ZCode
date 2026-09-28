@@ -3,6 +3,7 @@ import { ActivityIcon, BugIcon, NetworkIcon } from "lucide-react";
 import type { SessionDebugNetworkEntry } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useSessionDebug } from "@/hooks/useSessionDebug.js";
+import { isSigningAttentionKind, signingKindLabelId } from "@/lib/clientSigningLabels.js";
 
 interface DeveloperToolsPaneProps {
   workspacePath: string;
@@ -60,38 +61,6 @@ function networkStatusLabelId(statusType: SessionDebugNetworkEntry["statusType"]
     case "model_client_signing":
       return "developerTools.network.status.clientSigning";
   }
-}
-
-function signingKindLabelId(kind: string): string {
-  switch (kind) {
-    case "signed_sent":
-    case "unsigned_sent":
-    case "handshake_failed":
-    case "verify_rejected":
-    case "bypass_entered":
-    case "request_failed_closed":
-      return `developerTools.network.signing.kind.${kind}`;
-    default:
-      return "developerTools.network.signing";
-  }
-}
-
-/** signed_sent 是唯一的全链路成功态；其余（未签名/握手失败/验签被拒/降级）都提示需要关注。 */
-function isSigningAttentionKind(kind: string): boolean {
-  return kind !== "signed_sent";
-}
-
-/**
- * 网关在响应里回显的验签结论（x-client-sign-verified）。
- * 它是「服务端是否认可本次签名」的唯一客户端可见证据：
- * 出现且非空 = 网关已验签；未出现 = 该请求未签名或网关未回显。
- */
-function readGatewayVerifyEcho(responseHeaders: Record<string, string>): string | undefined {
-  const entry = Object.entries(responseHeaders).find(
-    ([key]) => key.toLowerCase() === "x-client-sign-verified",
-  );
-  const value = entry?.[1]?.trim();
-  return value ? value : undefined;
 }
 
 /** 只有实际存在 header 时才渲染区块：请求开始等事件没有响应头，不展示空块。 */
@@ -283,7 +252,6 @@ export function DeveloperToolsPane({
           ) : (
             <div className="space-y-2">
               {networkEntries.map((entry) => {
-                const gatewayVerifyEcho = readGatewayVerifyEcho(entry.responseHeaders);
                 return (
                   <div
                     key={entry.eventKey}
@@ -352,21 +320,22 @@ export function DeveloperToolsPane({
                                 </span>
                               </>
                             ) : null}
-                          </>
-                        ) : null}
-                        {gatewayVerifyEcho ? (
-                          <>
-                            <span>
-                              {intl.formatMessage({
-                                id: "developerTools.network.signing.gatewayEcho",
-                              })}
-                            </span>
-                            <span
-                              className="font-mono text-green-600 dark:text-green-400"
-                              data-testid="developer-tools-signing-gateway-echo"
-                            >
-                              {gatewayVerifyEcho}
-                            </span>
+                            {entry.clientSigning.requestUrl ? (
+                              <>
+                                <span>
+                                  {intl.formatMessage({
+                                    id: "developerTools.network.signing.requestUrl",
+                                  })}
+                                </span>
+                                {/* 实际发送端点：签名链路直连 provider，即最终请求 URL。 */}
+                                <span
+                                  className="min-w-0 break-all font-mono text-foreground"
+                                  data-testid="developer-tools-signing-request-url"
+                                >
+                                  {entry.clientSigning.requestUrl}
+                                </span>
+                              </>
+                            ) : null}
                           </>
                         ) : null}
                         <span>{intl.formatMessage({ id: "developerTools.network.attempt" })}</span>

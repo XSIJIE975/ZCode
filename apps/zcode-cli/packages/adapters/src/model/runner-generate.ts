@@ -273,6 +273,15 @@ export async function runGenerateText(input: {
           statusContext,
           statusSink: input.statusSink,
         });
+        // 本 attempt 不走 completed/failed 收口，观测必须在此取出，否则滞留 store。
+        await publishClientSigningObservations({
+          attempt,
+          logger: input.logger,
+          request: attemptRequest,
+          resolved,
+          statusContext,
+          statusSink: input.statusSink,
+        });
         continue;
       }
       const completedAt = Date.now();
