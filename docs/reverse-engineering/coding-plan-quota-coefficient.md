@@ -91,7 +91,7 @@ fetch(input, init)
 | 观测           | `model.client_signing.*` 日志 + 请求级 observation store | 无                             |
 | 适配器选项     | `clientRequestSigningState` 共享状态透传                 | 无                             |
 
-其余（归因 header `x-request-id`/`x-session-id`、代理 fetch、业务错误 fetch、网关改写）两版一致，移植面收敛在 adapters + bootstrap 两处。
+其余（归因 header `x-request-id`/`x-session-id`、代理 fetch、业务错误 fetch）两版一致。网关改写**不一致**：开源版固定叠加 `/api/v1/ultra*` 网关路由，发行版没有该硬编码（其动态 `proxyEndpoint` 当前为空，见第七节 7.2），本分支已按发行版语义修正为签名链路直连。
 
 ## 四、移植实现（本分支）
 
@@ -122,7 +122,62 @@ core 日志、v4 facts/projection 与 TUI 的显式忽略、桌面端开发者�
 - 折算比例本身（0.67）与服务端 gate 开关（`codingPlanSignature.enable`）由服务端控制，客户端无法也不应本地配置。
 - `apiKey` 非 `id.secret` 形态且 gate 开启时会 fail-closed——与发行版一致（普通 `sk-` Key 的 provider 通常不在官方域，不会进入签名分支）。
 
-## 七、补充逆向：Start Plan 的 3007「captcha verify failed」（Trust Build 套餐门禁）
+## 七、第八轮复核：路由偏差修正与全量逐项重核（2026-09-28）
+
+应用户要求对移植做一轮「不信结论文档、直接对 bundle 重新取证」的复核。全部关键常量、
+canonical 串与流程重新从 `zcode.cjs` 提取核对，同时发现并修正一个实质性路由偏差。
+
+### 7.1 逐项重核结论（全部对上）
+
+| 项目                | 发行版（bundle 取证）                                                                                                                                                       | 移植实现                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| HKDF                | SHA-256，salt `WD_CLIENT_SIGN_KDF_SALT`，info `getSignKey_hmac`/`ed25519_priv`，256bit                                                                                      | 一致                                                                       |
+| 握手签名串          | `get_sign_key\n{apiKeyId}\n{ts}\n{nonce}`                                                                                                                                   | 一致                                                                       |
+| privateCipher       | base64，12B IV + AES-GCM(128tag)，AD=apiKeyId，PKCS8 Ed25519                                                                                                                | 一致                                                                       |
+| 业务签名串          | `{apiKeyId}\n{ts}\n{clientVersion}\n{sessionId}\n{nonce}`（**不覆盖 method/path/body**）                                                                                    | 一致                                                                       |
+| PoW                 | challenge=SHA-256(`apiKeyId\nappId\nsessionId\nts`) hex 前 32 字符；salt 12B hex + counter 4B hex；前导 8 bit 零                                                            | 一致                                                                       |
+| 7 个签名头 + 剥离集 | Ts/Version/Sig/Nonce/Pow/App-Id + Sign-Verified 回显位                                                                                                                      | 一致                                                                       |
+| gate                | `{origin}/api/v1/agent/configs`，code!==0 不缓存，缺 `codingPlanSignature` 键视为关闭并缓存，TTL 1h/超时 15s                                                                | 一致                                                                       |
+| 握手                | POST `{baseURL origin}/api/paas/c1f3a7e2/v2/client`，body `{apiKey,nonce,sig,ts}`，Authorization=完整凭据，10s 超时；code 500 / 非 200 / 缺 cipher 各自分类，全部 fail-open | 一致                                                                       |
+| 验签被拒            | 仅 401 且 msg/reason/data.reason/error.reason/error.message 命中 `VERIFY_SIGNATURE_INVALID`/`VERIFY_APIKEY_EXPIRED`；重握手重签一次，再拒进 bypass                          | 一致                                                                       |
+| 触发矩阵            | start-plan/off-peak 排除；coding-plan-api-key；账号型个人/团队；`z.ai`/`bigmodel.cn` 根域；`api.chatglm.site`/`zcode.chatglm.site`                                          | 一致                                                                       |
+| clientVersion       | 头 `X-ZCode-App-Version` 优先，回退 `__ZCODE_VERSION__ ?? "0.0.0-dev"`                                                                                                      | 一致（本轮把回退改为共享 `ZCODE_VERSION` 常量）                            |
+| 观测发布            | `publishClientSigningObservations` 在 `publishModelStatus` 内部、主事件扇出前，逐条 `{...完成事件, observation, type:"model_client_signing"}` 只投 runner `statusSink`      | 机制一致；移植额外投 requestStatusSink 以驱动应用内可视化（发行版无该 UI） |
+
+### 7.2 发现的路由偏差（本轮修正）
+
+发行版 3.14.3 bundle 中**不存在**开源版的 `/api/v1/ultra`、`/api/v1/ultra-zai` 硬编码
+网关路由（全 bundle 零命中）。发行版的真实路由机制是：
+
+- 内置 provider 注册表运行时下发（`GET {origin}/api/v1/client/configs?app_version=&platform=`
+  → `data.configs.builtin_provider_config_json` → CDN）。当前 rev23 实测：
+  - `account:bigmodel-individual-coding-plan` → `https://open.bigmodel.cn/api/anthropic`
+  - `account:zai-individual-coding-plan` → `https://api.z.ai/api/anthropic`
+  - start-plan（zai/bigmodel）→ `https://zcode.z.ai/api/v1/zcode-plan/anthropic`
+- 另有动态端点改写 `ProviderEndpointRoutingService`：同一 `/api/v1/agent/configs` 的
+  `data.proxyEndpoint.mapping[{from,to}]`（成功缓存 5 分钟、失败退避 30 秒、3 秒超时）。
+  **实测当前响应无 `proxyEndpoint` 字段 → 映射为空 → 发行版不改写任何端点。**
+
+即发行版的签名请求（含 gate 关闭后的未签名降级）**直连注册表 baseURL**（如
+`https://open.bigmodel.cn/api/anthropic/v1/messages`），签名头由端点侧校验计费。
+而开源版 fetch 链固定叠加 ultra 网关改写——此前移植把「签名 + ultra 改写」叠加，
+签名虽随请求发出且未被拒，但计费路径与发行版不一致，0.67 系数是否在该网关侧生效
+无法从客户端证明。
+
+**修正**（本分支）：进入签名层的 provider 改用直连出口（仅用户 HTTP 代理，不做 ultra
+改写），与发行版行为对齐；非签名链路维持开源版 ultra 网关行为不变。握手本就按原始
+baseURL origin 发起（`open.bigmodel.cn`），不受影响。
+
+### 7.3 服务端现状实测（2026-09-28）
+
+- `GET https://zcode.z.ai/api/v1/agent/configs`（无鉴权）→
+  `{"code":0,"data":{"codingPlanSignature":{"enable":true}}}`：gate 当前开启，
+  且当前无 `proxyEndpoint` 下发。
+- 用户实测（个人 Coding Plan，`account:bigmodel-individual-coding-plan`）：握手成功、
+  `signed_sent` 轮次 1、HTTP 200、无 verify_rejected/bypass 观测——客户端侧全链路通。
+- 0.67 折算的业务确认仍需服务端侧证据（使用统计/余额对比），客户端可证的边界到此为止。
+
+## 八、Start Plan 的 3007「captcha verify failed」（Trust Build 套餐门禁）
 
 ### 现象
 

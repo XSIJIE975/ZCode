@@ -7,6 +7,7 @@
 // 本模块实现：feature gate 查询、Ed25519 私钥握手、请求签名、验签被拒后的
 // 重新握手重试与降级（bypass / fail-open）。
 
+import { ZCODE_VERSION } from "@zcode/shared";
 import {
   createClientRequestProofOfWork,
   createHandshakeSignature,
@@ -976,7 +977,12 @@ export class ClientRequestSigningManager {
   }
 }
 
-export const DEFAULT_CLIENT_SIGNING_VERSION = "0.0.0-dev";
+/**
+ * X-Client-Version 的协议占位版本，与发行版构建常量回退一致
+ * （__ZCODE_VERSION__ 缺失时为 "0.0.0-dev"；正常取值优先来自
+ * X-ZCode-App-Version 来源头，见 model-execution 的接线）。
+ */
+export const DEFAULT_CLIENT_SIGNING_VERSION = ZCODE_VERSION;
 
 function readHandshakeReason(value: unknown): string | undefined {
   return typeof value === "string" && HANDSHAKE_REASON_PATTERN.test(value) ? value : undefined;

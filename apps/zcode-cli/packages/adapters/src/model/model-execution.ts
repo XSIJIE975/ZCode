@@ -184,6 +184,7 @@ export class AiSdkModelExecution {
   private readonly baseTransport?: ProviderFetch;
   private readonly clientRequestSigningState?: AiSdkClientRequestSigningState;
   private readonly providerTransports = new Map<string, ProviderFetch>();
+  private readonly providerDirectTransports = new Map<string, ProviderFetch>();
   private readonly signingManager: ClientRequestSigningManager;
   private readonly signingFeatureGates = new Map<string, CodingPlanSignatureFeatureGate>();
   private readonly clientSigningObservations = new ClientSigningObservationStore();
@@ -426,8 +427,17 @@ export class AiSdkModelExecution {
     // 官方 Coding Plan 链路要求客户端签名（服务端据此应用额度折算计费）；
     // 官方域上明确免签名的 access（start-plan / off-peak）保持未签名并留观测；
     // 其余 provider 与既有行为一致，完全不进入签名层。
+    // 进入签名层的 provider 必须直连 provider 端点：发行版 3.14.3 的签名请求
+    // 直接发往注册表下发的 baseURL（其动态 proxyEndpoint 映射当前为空），
+    // 签名头由 bigmodel/z.ai 端点侧校验计费；若再经开源版 ultra 网关改写，
+    // 计费路径与发行版不一致，额度折算不保证生效。
     const businessFetch: ProviderFetch = requiresClientRequestSigning(providerConfig)
-      ? this.resolveClientSigningFetch(providerId, providerConfig, apiKey, providerTransport)
+      ? this.resolveClientSigningFetch(
+          providerId,
+          providerConfig,
+          apiKey,
+          this.resolveProviderDirectTransport(providerId),
+        )
       : isOfficialProviderHost(providerConfig.baseURL)
         ? this.createAccessModeUnsignedFetch(providerId, providerTransport)
         : providerTransport;
@@ -504,6 +514,28 @@ export class AiSdkModelExecution {
       noProxy: this.network.noProxy,
     });
     this.providerTransports.set(providerId, transport);
+    return transport;
+  }
+
+  /**
+   * 签名链路专用直连出口：只做用户 HTTP 代理，不做 ultra 网关端点改写。
+   * 发行版的签名请求（含 gate 关闭后的未签名降级）都直连注册表 baseURL；
+   * ultra 网关是开源版免签名链路的替代计费路径，二者不能叠加以免偏离
+   * 发行版计费路径。实例按 providerId 缓存，保证 signer 复用判断稳定。
+   */
+  private resolveProviderDirectTransport(providerId: string): ProviderFetch {
+    const current = this.providerDirectTransports.get(providerId);
+    if (current) {
+      return current;
+    }
+    const transport = createProviderProxyFetch({
+      caCertFile: this.network.caCertFile,
+      env: this.env,
+      fetch: this.baseTransport,
+      httpProxy: this.network.httpProxy,
+      noProxy: this.network.noProxy,
+    });
+    this.providerDirectTransports.set(providerId, transport);
     return transport;
   }
 

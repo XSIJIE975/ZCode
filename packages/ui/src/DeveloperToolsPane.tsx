@@ -94,6 +94,13 @@ function readGatewayVerifyEcho(responseHeaders: Record<string, string>): string 
   return value ? value : undefined;
 }
 
+/** 只有实际存在 header 时才渲染区块：请求开始等事件没有响应头，不展示空块。 */
+function hasHeaders(
+  headers: Record<string, string> | undefined,
+): headers is Record<string, string> {
+  return Boolean(headers && Object.keys(headers).length > 0);
+}
+
 function HeaderDetails({
   title,
   headers,
@@ -394,24 +401,27 @@ export function DeveloperToolsPane({
                         </div>
                       ) : null}
                     </div>
-                    <HeaderDetails
-                      title={intl.formatMessage(
-                        { id: "developerTools.network.requestHeaders" },
-                        { count: formatNumber(locale, entry.requestHeaderCount) },
-                      )}
-                      headers={entry.requestHeaders}
-                      emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
-                    />
-                    <HeaderDetails
-                      title={intl.formatMessage(
-                        { id: "developerTools.network.responseHeaders" },
-                        { count: formatNumber(locale, entry.responseHeaderCount) },
-                      )}
-                      headers={entry.responseHeaders}
-                      emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
-                    />
-                    {entry.clientSigning?.headers &&
-                    Object.keys(entry.clientSigning.headers).length > 0 ? (
+                    {hasHeaders(entry.requestHeaders) ? (
+                      <HeaderDetails
+                        title={intl.formatMessage(
+                          { id: "developerTools.network.requestHeaders" },
+                          { count: formatNumber(locale, entry.requestHeaderCount) },
+                        )}
+                        headers={entry.requestHeaders}
+                        emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
+                      />
+                    ) : null}
+                    {hasHeaders(entry.responseHeaders) ? (
+                      <HeaderDetails
+                        title={intl.formatMessage(
+                          { id: "developerTools.network.responseHeaders" },
+                          { count: formatNumber(locale, entry.responseHeaderCount) },
+                        )}
+                        headers={entry.responseHeaders}
+                        emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
+                      />
+                    ) : null}
+                    {hasHeaders(entry.clientSigning?.headers) ? (
                       <HeaderDetails
                         title={intl.formatMessage(
                           { id: "developerTools.network.signing.headers" },

@@ -27,10 +27,11 @@ export function WorkspaceSidebarFooterClientSigningBadge({
   });
   const latestSigningEntry = useMemo(() => {
     const entries = debugState.networkEntries ?? [];
-    // 快照按时间追加，倒序找最近一条签名观测。
+    // 签名观测并入同 requestId 的请求条目（找不到时才独立成行），
+    // 倒序找最近一条携带 clientSigning 的条目即最近一次签名结果。
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       const entry: (typeof entries)[number] | undefined = entries[index];
-      if (entry?.statusType === "model_client_signing" && entry.clientSigning) {
+      if (entry?.clientSigning) {
         return entry;
       }
     }

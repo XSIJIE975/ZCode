@@ -15,6 +15,9 @@
 2. 签名对请求体透明：不改变 URL、方法、鉴权头与请求体，只追加 `X-Client-*` 一族 header。
 3. 签名失败不得破坏可用性：feature gate 关闭 / 握手可恢复失败 / 验签两次被拒 → 按未签名请求继续发送（降级），并记录观测事件；仅非法配置、密码学异常等不可恢复错误允许抛出（fail-closed）。
 4. 折算系数、额度、积分的数值一律以服务端下发为准；客户端不得本地计算或改写任何额度数值。
+5. **进入签名层的 provider 直连注册表下发的 baseURL**（含降级后的未签名请求），不做开源版
+   `/api/v1/ultra*` 网关端点改写——发行版 3.14.3 即此行为（其动态 `proxyEndpoint` 映射当前为空），
+   签名头由 bigmodel/z.ai 端点侧校验计费；网关改写只保留给非签名链路。
 
 ## 状态所有者
 
@@ -89,9 +92,12 @@ fetch(input, init)
 - `signed_sent` 观测附带本请求签名头全量取值（x-app-id/ts/version/nonce/sig/pow/session-id），
   面板「签名头」区块完整展示（用户明确要求不脱敏；取值逐请求变化，非长期凭据，不含 apiKey）。
 - runner 在每次尝试收口（completed / failed）后把观测发布为 `model_client_signing` 状态事件
-  （只投进程级 statusSink）：经 core 记为 SessionEvent 后进入会话调试快照，
-  最终在桌面端「开发者工具」面板网络区按请求展示签名结论（已签名 / 未签名(原因) / 验签被拒等）。
-  v4 telemetry fact、TUI 网络列表与对话投影显式忽略该事件类型。
+  （投 requestStatusSink 驱动应用内可视化 + 进程级 statusSink 对齐发行版观测面；不投
+  admissionTicket）：经 core 记为 SessionEvent 后进入会话调试快照，签名观测按 requestId
+  **并入同一请求的最新网络条目**（不单独成行；找不到对应条目时兜底独立成行），最终在
+  桌面端「开发者工具」面板网络区的请求条目内展示签名结论与签名头。空 header 区块
+  （如请求开始条目的 Response Headers）不渲染。v4 telemetry fact、TUI 网络列表与对话投影
+  显式忽略该事件类型。
 
 ## 验收场景
 
