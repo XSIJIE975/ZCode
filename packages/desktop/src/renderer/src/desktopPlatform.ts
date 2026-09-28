@@ -1,5 +1,10 @@
 import { recordArmsCustomEventForE2E } from "@zcode/ui";
-import { DesktopCommandIds, buildLocalMediaPreviewUrl, type IPlatformService } from "@zcode/shared";
+import {
+  DesktopCommandIds,
+  WEB_REMOTE_CONTROL_DEFAULT_STATUS,
+  buildLocalMediaPreviewUrl,
+  type IPlatformService,
+} from "@zcode/shared";
 
 import { desktopBrowserPlatformBridge } from "./desktopBrowserPlatformBridge.js";
 
@@ -127,6 +132,19 @@ export function createDesktopPlatform(options: {
     onUpdateStateChanged: (callback) => window.zcode.onUpdateStateChanged?.(callback) ?? (() => {}),
     getUpdateState: () =>
       window.zcode.getUpdateState?.() ?? Promise.resolve({ kind: "idle", enabled: true }),
+    enableWebRemoteControl: () =>
+      window.zcode.enableWebRemoteControl?.() ?? Promise.resolve(WEB_REMOTE_CONTROL_DEFAULT_STATUS),
+    disableWebRemoteControl: () =>
+      window.zcode.disableWebRemoteControl?.() ??
+      Promise.resolve(WEB_REMOTE_CONTROL_DEFAULT_STATUS),
+    getWebRemoteControlStatus: () =>
+      window.zcode.getWebRemoteControlStatus?.() ??
+      Promise.resolve(WEB_REMOTE_CONTROL_DEFAULT_STATUS),
+    resetWebRemoteControlPairing: () =>
+      window.zcode.resetWebRemoteControlPairing?.() ??
+      Promise.resolve(WEB_REMOTE_CONTROL_DEFAULT_STATUS),
+    onWebRemoteControlStatusChanged: (callback) =>
+      window.zcode.onWebRemoteControlStatusChanged?.(callback) ?? (() => undefined),
     downloadUpdate: () => window.zcode.downloadUpdate?.() ?? Promise.resolve(),
     cancelUpdateDownload: () => window.zcode.cancelUpdateDownload?.() ?? Promise.resolve(),
     openUpdateStatusWindow: () => window.zcode.openUpdateStatusWindow?.() ?? Promise.resolve(),

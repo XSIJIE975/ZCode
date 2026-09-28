@@ -1733,8 +1733,72 @@ const enUS: Record<string, string> = {
   "remote.connectingStepDescription":
     "We are establishing the {method} connection. You can follow the live setup progress here.",
   "webRemoteControl.trigger": "Mobile remote control",
+  "webRemoteControl.triggerStatus.idle": "Remote control is off",
+  "webRemoteControl.triggerStatus.starting": "Remote control is starting",
+  "webRemoteControl.triggerStatus.waiting": "Waiting for phone",
+  "webRemoteControl.triggerStatus.connecting": "Connecting phone",
+  "webRemoteControl.triggerStatus.connected": "Phone connected",
+  "webRemoteControl.triggerStatus.error": "Remote control failed",
   "webRemoteControl.title": "Mobile remote control",
-  "webRemoteControl.description": "Control ZCode workspaces through chat bots.",
+  "webRemoteControl.description":
+    "Scan the QR code or open the link on your phone to control this workspace.",
+  "webRemoteControl.status.idle": "Idle",
+  "webRemoteControl.status.starting": "Starting",
+  "webRemoteControl.status.running": "Waiting for phone",
+  "webRemoteControl.status.connecting": "Connecting phone",
+  "webRemoteControl.status.active": "Phone connected",
+  "webRemoteControl.status.error": "Connection failed",
+  "webRemoteControl.statusDetail.idle": "Ready to connect.",
+  "webRemoteControl.statusDetail.starting": "Starting remote control...",
+  "webRemoteControl.statusDetail.running": "Scan the QR code or open the link on your phone.",
+  "webRemoteControl.statusDetail.connecting": "Phone is connecting...",
+  "webRemoteControl.statusDetail.active": "Your phone can control this workspace.",
+  "webRemoteControl.statusDetail.error": "Could not start mobile remote control.",
+  "webRemoteControl.statusTag.phone": "Phone",
+  "webRemoteControl.statusTag.ready": "Ready",
+  "webRemoteControl.generating": "Preparing QR code...",
+  "webRemoteControl.qrAlt": "Web remote control QR code",
+  "webRemoteControl.mobileQr.title": "Scan from phone",
+  "webRemoteControl.mobileQr.description": "Use your phone camera to open this workspace remotely.",
+  "webRemoteControl.copyLink.description": "Can't scan? Open the link on your phone.",
+  "webRemoteControl.copyLink": "Copy link",
+  "webRemoteControl.copyLink.copied": "Remote control link copied",
+  "webRemoteControl.copyLinkFailed": "Could not copy remote control link: {error}",
+  "webRemoteControl.refreshQr": "Refresh QR",
+  "webRemoteControl.refreshQr.confirmTitle": "Refresh QR code?",
+  "webRemoteControl.refreshQr.confirmDescription":
+    "Refreshing will invalidate any remote control links that were copied or scanned before. Connected phones will need to scan the new QR code.",
+  "webRemoteControl.refreshQr.success": "Remote control QR refreshed",
+  "webRemoteControl.refreshQr.failed": "Could not refresh remote control QR: {error}",
+  "webRemoteControl.stop": "Stop",
+  "webRemoteControl.failure.sessionNotFound":
+    "This Web remote control link is no longer valid. Start it again from desktop.",
+  "webRemoteControl.failure.sessionExpired":
+    "This Web remote control session has already ended. Generate a new link from desktop to continue.",
+  "webRemoteControl.failure.sessionConflict":
+    "This link is already being used by another page. Close the other page and scan again.",
+  "webRemoteControl.failure.kicked":
+    "The relay kicked this pairing. Close the other page and generate a new QR code from desktop.",
+  "webRemoteControl.failure.workspaceClosed":
+    "The shared desktop window has been closed. Go back to desktop and start Web remote control again.",
+  "webRemoteControl.failure.desktopDisconnected":
+    "The desktop side disconnected, so this Web remote control session can no longer continue.",
+  "webRemoteControl.failure.invalidMobileConnection":
+    "The current mobile connection is no longer valid. Reload the page and reconnect.",
+  "webRemoteControl.failure.desktopBootstrapTimeout":
+    "The desktop window did not respond in time. Make sure it is still running, then reload.",
+  "webRemoteControl.failure.connectionRecoveryTimeout":
+    "The mobile connection did not recover in time, so Web remote control cannot keep syncing yet.",
+  "webRemoteControl.failure.relayUnavailable":
+    "The external relay connection is unavailable. Make sure desktop is online, then try again.",
+  "webRemoteControl.failure.unsupportedAction":
+    "Web remote control mode can only open workspaces that are already open in the current desktop window.",
+  "webRemoteControl.failure.unexpectedError":
+    "Could not start mobile remote control. Try again from desktop.",
+  "webRemoteControl.startFailed": "Failed to start Web remote control: {error}",
+  "webRemoteControl.stopSuccess": "Web remote control stopped",
+  "webRemoteControl.stopFailed": "Failed to stop Web remote control: {error}",
+  "webRemoteControl.themeMenu.trigger": "Choose theme",
   "webRemoteControl.botChannel.title": "Use a bot channel",
   "webRemoteControl.botChannel.description": "Connect a chat bot for longer-running mobile access.",
   "webRemoteControl.botChannel.weixin.title": "Weixin",

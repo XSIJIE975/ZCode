@@ -28,6 +28,7 @@ function parseDeviceIdFromArgs(): string {
 contextBridge.exposeInMainWorld("__ZCODE_DEVICE_ID__", parseDeviceIdFromArgs());
 
 import type {
+  WebRemoteControlStatus,
   AppSettings,
   ApplicationIconRequest,
   BrowserViewOperationPayload,
@@ -742,6 +743,23 @@ contextBridge.exposeInMainWorld("zcode", {
   },
   getUpdateState: (): Promise<UpdateStatePayload> =>
     ipcRenderer.invoke(PlatformChannels.GetUpdateState),
+
+  enableWebRemoteControl: (): Promise<WebRemoteControlStatus> =>
+    ipcRenderer.invoke(PlatformChannels.WebRemoteControlEnable),
+  disableWebRemoteControl: (): Promise<WebRemoteControlStatus> =>
+    ipcRenderer.invoke(PlatformChannels.WebRemoteControlDisable),
+  getWebRemoteControlStatus: (): Promise<WebRemoteControlStatus> =>
+    ipcRenderer.invoke(PlatformChannels.WebRemoteControlStatus),
+  resetWebRemoteControlPairing: (): Promise<WebRemoteControlStatus> =>
+    ipcRenderer.invoke(PlatformChannels.WebRemoteControlResetPairing),
+  onWebRemoteControlStatusChanged: (
+    callback: (payload: WebRemoteControlStatus) => void,
+  ): (() => void) => {
+    const listener = (_event: unknown, payload: WebRemoteControlStatus): void => callback(payload);
+    ipcRenderer.on(PlatformChannels.WebRemoteControlStatusChanged, listener);
+    return () =>
+      ipcRenderer.removeListener(PlatformChannels.WebRemoteControlStatusChanged, listener);
+  },
   /** 开始下载当前已发现的更新 */
   downloadUpdate: () => ipcRenderer.invoke(PlatformChannels.DownloadUpdate),
   /** 取消当前正在下载的更新 */

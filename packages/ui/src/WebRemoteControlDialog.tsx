@@ -2,6 +2,7 @@ import { memo, useState } from "react";
 import type { BotProvider } from "@zcode/shared";
 import { Bot as BotIcon, MonitorSmartphone, XIcon } from "lucide-react";
 import { BotsDialog } from "@/BotsDialog.js";
+import { WebRemoteControlRelayPanel } from "@/WebRemoteControlRelayPanel.js";
 import { ProviderIcon } from "@/BotsDialog/shared.js";
 import { Button } from "@/components/ui/button.js";
 import {
@@ -15,10 +16,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { getBotProviderRegionTagLabelId } from "@/botsUi.js";
 
-type RemoteControlBotProvider = Extract<
-  BotProvider,
-  "weixin" | "feishu" | "lark" | "telegram"
->;
+type RemoteControlBotProvider = Extract<BotProvider, "weixin" | "feishu" | "lark" | "telegram">;
 
 const REMOTE_CONTROL_BOT_ENTRIES: Array<{
   provider: RemoteControlBotProvider;
@@ -42,8 +40,7 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
 }) {
   const { intl } = useZCodeIntl();
   const [botsDialogOpen, setBotsDialogOpen] = useState(false);
-  const [botEntryProvider, setBotEntryProvider] =
-    useState<RemoteControlBotProvider | null>(null);
+  const [botEntryProvider, setBotEntryProvider] = useState<RemoteControlBotProvider | null>(null);
 
   const handleOpenBotEntry = (provider: RemoteControlBotProvider) => {
     setBotEntryProvider(provider);
@@ -69,7 +66,7 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
           showCloseButton={false}
-          className="max-h-[calc(100vh-6rem)] max-w-lg gap-0 overflow-hidden rounded-2xl p-0"
+          className="max-h-[calc(100vh-6rem)] max-w-4xl gap-0 overflow-hidden rounded-2xl p-0"
         >
           <Button
             type="button"
@@ -85,16 +82,17 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
             <XIcon />
             <span className="sr-only">Close</span>
           </Button>
-          <div className="max-h-[calc(100vh-6rem)] min-h-0 overflow-y-auto p-5">
+          <div
+            data-testid="web-remote-control-dialog-scroll"
+            className="max-h-[calc(100vh-6rem)] min-h-0 overflow-y-auto p-5"
+          >
             <DialogHeader className="space-y-2 pr-8">
               <div className="flex items-center gap-2">
                 <div className="flex size-10 items-center justify-center rounded-lg border border-border bg-surface text-primary">
                   <MonitorSmartphone className="size-5" />
                 </div>
                 <div className="space-y-1">
-                  <DialogTitle>
-                    {intl.formatMessage({ id: "webRemoteControl.title" })}
-                  </DialogTitle>
+                  <DialogTitle>{intl.formatMessage({ id: "webRemoteControl.title" })}</DialogTitle>
                   <DialogDescription>
                     {intl.formatMessage({ id: "webRemoteControl.description" })}
                   </DialogDescription>
@@ -102,7 +100,11 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
               </div>
             </DialogHeader>
 
-            <div className="mt-5 grid gap-4">
+            <div
+              data-testid="web-remote-control-main-grid"
+              className="mt-5 grid gap-4 md:grid-cols-[minmax(0,1.45fr)_minmax(300px,1fr)]"
+            >
+              <WebRemoteControlRelayPanel open={open} onStopped={() => onOpenChange(false)} />
               <section className="flex min-h-[360px] flex-col rounded-xl border border-border bg-card p-4">
                 <div className="mb-4 flex items-start gap-2">
                   <BotIcon className="mt-0.5 size-4 shrink-0 text-foreground-subtle" />
@@ -121,9 +123,7 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
                 </div>
                 <div className="grid min-h-0 flex-1 gap-3">
                   {REMOTE_CONTROL_BOT_ENTRIES.map((entry) => {
-                    const regionTagLabelId = getBotProviderRegionTagLabelId(
-                      entry.provider,
-                    );
+                    const regionTagLabelId = getBotProviderRegionTagLabelId(entry.provider);
 
                     return (
                       <button
@@ -134,10 +134,7 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
                       >
                         {/* Bugfix: 远控 Bot Channel 入口原来用通用 lucide 图标，用户无法一眼区分微信、飞书和 Telegram。
                             这里直接复用 BotsDialog 的渠道 logo，不再额外包裹容器，保证品牌图标本身作为视觉识别。 */}
-                        <ProviderIcon
-                          provider={entry.provider}
-                          className="size-12 shrink-0"
-                        />
+                        <ProviderIcon provider={entry.provider} className="size-12 shrink-0" />
                         <span className="min-w-0 flex-1 space-y-1">
                           <span className="flex min-w-0 items-center gap-1.5 text-ui-base font-medium text-foreground">
                             <span className="min-w-0 truncate">
@@ -171,6 +168,7 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
                     type="button"
                     variant="outline"
                     size="lg"
+                    data-testid="web-remote-control-open-bots"
                     className="w-full justify-center gap-2 enabled:cursor-pointer"
                     onClick={handleOpenBotsDialog}
                   >
