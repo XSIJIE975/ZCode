@@ -96,6 +96,7 @@ export function WorkspaceHeaderTitleSection({
   reloadSessionPending,
   workspaceHeaderState,
   onRefreshGit: _onRefreshGit,
+  onOpenDeveloperTools,
   isMacDesktop: _isMacDesktop,
   isMacFullscreen: _isMacFullscreen,
   isWindowsDesktop: _isWindowsDesktop,
@@ -708,6 +709,11 @@ export function WorkspaceHeaderTitleSection({
                           title: activeTaskMeta?.title ?? null,
                         });
                       }
+                    : undefined
+                }
+                onOpenDeveloperTools={
+                  onOpenDeveloperTools && resolvedTaskActionTaskId
+                    ? () => onOpenDeveloperTools()
                     : undefined
                 }
               />

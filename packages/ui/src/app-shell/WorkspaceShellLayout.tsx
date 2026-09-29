@@ -1731,6 +1731,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                           isTerminalOpen={isTerminalOpen}
                           isSidePaneOpen={isSidePaneOpen}
                           onRefreshGit={handleRefreshGit}
+                          onOpenDeveloperTools={handleOpenDeveloperTools}
                           onToggleTerminal={handleToggleTerminal}
                           onToggleBrowser={handleToggleBrowser}
                           onToggleSidePane={handleToggleSidePane}

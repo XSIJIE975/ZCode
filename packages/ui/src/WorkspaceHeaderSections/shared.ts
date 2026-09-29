@@ -46,6 +46,7 @@ export interface WorkspaceHeaderTitleSectionProps {
   reloadSessionDisabled?: boolean;
   reloadSessionPending?: boolean;
   onRefreshGit: () => void;
+  onOpenDeveloperTools?: () => void;
   workspaceHeaderState: WorkspaceHeaderState;
   isMacDesktop?: boolean;
   isMacFullscreen?: boolean;

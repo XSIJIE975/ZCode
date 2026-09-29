@@ -39,6 +39,7 @@ export function TaskActionMenuContent({
   onCopyTaskLogPath,
   onCopySessionId,
   onViewModelTrajectory,
+  onOpenDeveloperTools,
 }: {
   intl: {
     formatMessage: (desc: { id: string }, values?: Record<string, string>) => string;
@@ -74,6 +75,7 @@ export function TaskActionMenuContent({
   onCopyTaskLogPath: () => void;
   onCopySessionId?: () => void;
   onViewModelTrajectory?: () => void;
+  onOpenDeveloperTools?: () => void;
 }) {
   const taskTargetActionsDisabled = disableTaskActions || disableTaskTargetActions;
 
@@ -193,6 +195,19 @@ export function TaskActionMenuContent({
             onSelect={onViewModelTrajectory}
           >
             {intl.formatMessage({ id: "taskList.viewModelTrajectory" })}
+          </Item>
+        </>
+      ) : null}
+      {onOpenDeveloperTools ? (
+        <>
+          <Separator />
+          {/* 会话级诊断面板：签名/网络明细按会话统计，从会话菜单进入即看该会话。 */}
+          <Item
+            disabled={taskTargetActionsDisabled || !activeSessionId}
+            title={taskTargetActionsDisabled ? disabledReason : undefined}
+            onSelect={onOpenDeveloperTools}
+          >
+            {intl.formatMessage({ id: "workspace.openDeveloperTools" })}
           </Item>
         </>
       ) : null}

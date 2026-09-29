@@ -135,6 +135,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   closeTab,
   toggleWorkspaceExpanded,
   onSelectTask,
+  onOpenDeveloperTools,
   onStartDraftInWorkspace,
   taskItems,
   taskListLoading,
@@ -163,6 +164,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
     taskId: string,
     targetWorkspaceIdentity?: string,
   ) => void;
+  onOpenDeveloperTools?: (taskId: string) => void;
   onStartDraftInWorkspace: (targetWorkspacePath: string, targetWorkspaceIdentity?: string) => void;
   taskItems: ZCodeTaskMeta[];
   taskListLoading: boolean;
@@ -1123,6 +1125,14 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
             pinnedTasks={EMPTY_PINNED_TASKS}
             activeTaskId={isActiveWorkspace ? activeTaskId : null}
             onSelectTask={handleSelectTask}
+            onOpenDeveloperTools={
+              onOpenDeveloperTools
+                ? (taskId) => {
+                    handleSelectTask(taskId);
+                    onOpenDeveloperTools(taskId);
+                  }
+                : undefined
+            }
             showCreateButton={false}
             showFooter={false}
             loading={taskListLoading}

@@ -19,6 +19,7 @@ export const SortableWorkspaceSidebarItem = memo(function SortableWorkspaceSideb
   closeTab,
   toggleWorkspaceExpanded,
   onSelectTask,
+  onOpenDeveloperTools,
   onStartDraftInWorkspace,
   taskItems,
   taskListLoading,
@@ -44,6 +45,7 @@ export const SortableWorkspaceSidebarItem = memo(function SortableWorkspaceSideb
     taskId: string,
     targetWorkspaceIdentity?: string,
   ) => void;
+  onOpenDeveloperTools?: (taskId: string) => void;
   onStartDraftInWorkspace: (targetWorkspacePath: string, targetWorkspaceIdentity?: string) => void;
   taskItems: ZCodeTaskMeta[];
   taskListLoading: boolean;
@@ -113,6 +115,7 @@ export const SortableWorkspaceSidebarItem = memo(function SortableWorkspaceSideb
       closeTab={closeTab}
       toggleWorkspaceExpanded={toggleWorkspaceExpanded}
       onSelectTask={onSelectTask}
+      onOpenDeveloperTools={onOpenDeveloperTools}
       onStartDraftInWorkspace={onStartDraftInWorkspace}
       taskItems={taskItems}
       taskListLoading={taskListLoading}
