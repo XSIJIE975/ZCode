@@ -1372,6 +1372,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                   activeTaskId={activeTaskId}
                   taskSortBy={taskSortBy}
                   onSelectTask={handleTaskRowSelect}
+                  onOpenDeveloperTools={
+                    onOpenDeveloperTools
+                      ? (taskId) => {
+                          handleTaskRowSelect(workspacePath, taskId, workspaceIdentity);
+                          onOpenDeveloperTools(taskId);
+                        }
+                      : undefined
+                  }
                   onOpenFileTree={(target) => {
                     setFileTreeTarget(target);
                     setIsFileTreeOpen(true);
@@ -1417,6 +1425,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                     activeTaskId={activeTaskId}
                     taskSortBy={taskSortBy}
                     onSelectTask={handleTaskRowSelect}
+                    onOpenDeveloperTools={
+                      onOpenDeveloperTools
+                        ? (taskId) => {
+                            handleTaskRowSelect(workspacePath, taskId, workspaceIdentity);
+                            onOpenDeveloperTools(taskId);
+                          }
+                        : undefined
+                    }
                   />
                 ) : (
                   <DndContext

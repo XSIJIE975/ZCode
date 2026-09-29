@@ -51,6 +51,7 @@ export function WorkspacePinnedTasksSection({
   taskSortBy,
   onSelectTask,
   onOpenFileTree,
+  onOpenDeveloperTools,
 }: {
   workspaceTabs: WorkspaceTabState[];
   activeWorkspacePath: string;
@@ -69,6 +70,7 @@ export function WorkspacePinnedTasksSection({
     workspaceIdentity?: string;
     workspaceRemoteSessionId?: string;
   }) => void;
+  onOpenDeveloperTools?: (taskId: string) => void;
 }) {
   const { intl } = useZCodeIntl();
   const baseServices = useBaseWorkspaceServices();
@@ -587,6 +589,18 @@ export function WorkspacePinnedTasksSection({
             task={contextMenuItem}
             isPinned
             intl={intl}
+            onOpenDeveloperTools={
+              onOpenDeveloperTools
+                ? (taskId) => {
+                    onSelectTask(
+                      contextMenuItem.workspacePath,
+                      taskId,
+                      contextMenuItem.workspaceIdentity,
+                    );
+                    onOpenDeveloperTools(taskId);
+                  }
+                : undefined
+            }
             onTogglePinTask={(_taskId, pinned) => {
               if (contextMenuItem.workspaceIdentity) {
                 useRemotePinnedTaskStore

@@ -48,6 +48,7 @@ export function WorkspaceTimelineTasksSection({
   taskRowVariant = "timeline",
   emptyMessage,
   onSelectTask,
+  onOpenDeveloperTools,
 }: {
   workspaceTabs: WorkspaceTabState[];
   activeWorkspacePath: string;
@@ -63,6 +64,7 @@ export function WorkspaceTimelineTasksSection({
     targetWorkspaceIdentity?: string,
     expectedUnreadAt?: number,
   ) => void;
+  onOpenDeveloperTools?: (taskId: string) => void;
 }) {
   const { intl, locale } = useZCodeIntl();
   const baseServices = useBaseWorkspaceServices();
@@ -734,6 +736,18 @@ export function WorkspaceTimelineTasksSection({
             task={contextMenuItem}
             isPinned={false}
             intl={intl}
+            onOpenDeveloperTools={
+              onOpenDeveloperTools
+                ? (taskId) => {
+                    onSelectTask(
+                      contextMenuItem.workspacePath,
+                      taskId,
+                      contextMenuItem.workspaceIdentity,
+                    );
+                    onOpenDeveloperTools(taskId);
+                  }
+                : undefined
+            }
             onTogglePinTask={(_taskId, pinned) => {
               // timeline 现在本地和远端分属两套缓存，pin 时需要同时维护成员关系。
               // 否则远端任务会进入 pinned 后仍残留在 timeline 缓存里。
