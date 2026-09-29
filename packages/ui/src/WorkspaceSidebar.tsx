@@ -1663,6 +1663,18 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                                   id: "workspaceSidebar.noConversations",
                                 })}
                                 onSelectTask={handleTaskRowSelect}
+                                onOpenDeveloperTools={
+                                  onOpenDeveloperTools
+                                    ? (taskId) => {
+                                        handleTaskRowSelect(
+                                          workspacePath,
+                                          taskId,
+                                          workspaceIdentity,
+                                        );
+                                        onOpenDeveloperTools(taskId);
+                                      }
+                                    : undefined
+                                }
                               />
                             </WorkspacePurposeSection>
                           ),
