@@ -568,6 +568,23 @@ export interface IPlatformService {
   /** 订阅当前窗口内远程连接过程日志，返回 disposer */
   onRemoteConnectionLog(handler: (entry: RemoteConnectionRuntimeLog) => void): () => void;
 
+  /**
+   * Start Plan 人机验证请求（desktop 专属；web/远端窗口无此能力为 undefined）。
+   * handler 收到验证请求后由 UI 跑 AliyunCaptcha，结果经 submitCaptchaVerifyResult 回传。
+   */
+  onCaptchaVerifyRequested?(
+    handler: (payload: { requestId: string; reason: "model-request" | "captcha-retry" }) => void,
+  ): () => void;
+  /** Start Plan 人机验证结果回传（按 requestId 关联；验证参数只在内存传递）。 */
+  submitCaptchaVerifyResult?(payload: {
+    requestId: string;
+    ok: boolean;
+    captchaVerifyParam?: string;
+    captchaRegion?: string;
+    errorMessage?: string;
+    errorKind?: string;
+  }): void;
+
   /** 订阅远程 workspace session 关闭事件，返回 disposer */
   onRemoteSessionClosed(handler: (event: RemoteSessionClosedEvent) => void): () => void;
 

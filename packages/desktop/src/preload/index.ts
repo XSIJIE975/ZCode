@@ -315,6 +315,24 @@ contextBridge.exposeInMainWorld("zcode", {
     ipcRenderer.on(PlatformChannels.RemoteConnectionLog, handler);
     return () => ipcRenderer.removeListener(PlatformChannels.RemoteConnectionLog, handler);
   },
+  /** Start Plan 人机验证请求（Main → Renderer），返回 disposer */
+  onCaptchaVerifyRequested: (
+    callback: (payload: { requestId: string; reason: "model-request" | "captcha-retry" }) => void,
+  ) => {
+    const handler = (_event: unknown, payload: unknown) =>
+      callback(payload as { requestId: string; reason: "model-request" | "captcha-retry" });
+    ipcRenderer.on(PlatformChannels.CaptchaVerifyRequested, handler);
+    return () => ipcRenderer.removeListener(PlatformChannels.CaptchaVerifyRequested, handler);
+  },
+  /** Start Plan 人机验证结果（Renderer → Main），按 requestId 关联 */
+  submitCaptchaVerifyResult: (payload: {
+    requestId: string;
+    ok: boolean;
+    captchaVerifyParam?: string;
+    captchaRegion?: string;
+    errorMessage?: string;
+    errorKind?: string;
+  }) => ipcRenderer.send(PlatformChannels.CaptchaVerifyResult, payload),
   /** 订阅当前窗口内远程 session 关闭事件，返回 disposer */
   onRemoteSessionClosed: (callback: (event: RemoteSessionClosedEvent) => void) => {
     const handler = (_event: unknown, payload: unknown) =>

@@ -15,6 +15,8 @@ export function createDesktopPlatform(options: {
     selectFiles: () => window.zcode.selectFiles?.() ?? Promise.resolve([]),
     createTempTextAttachment: (payload) => window.zcode.createTempTextAttachment(payload),
     onRemoteConnectionLog: (handler) => window.zcode.onRemoteConnectionLog(handler),
+    onCaptchaVerifyRequested: (handler) => window.zcode.onCaptchaVerifyRequested(handler),
+    submitCaptchaVerifyResult: (payload) => window.zcode.submitCaptchaVerifyResult(payload),
     onRemoteSessionClosed: (handler) => window.zcode.onRemoteSessionClosed(handler),
     onBotRemoteWorkspaceReconnected: (handler) =>
       window.zcode.onBotRemoteWorkspaceReconnected(handler),

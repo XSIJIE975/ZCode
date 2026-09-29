@@ -101,6 +101,22 @@ declare global {
       getPathForFile?(file: File): string | null;
       /** 订阅当前窗口内远程连接过程日志，返回 disposer */
       onRemoteConnectionLog(handler: (entry: RemoteConnectionRuntimeLog) => void): () => void;
+      /** Start Plan 人机验证请求（desktop 专属），返回 disposer */
+      onCaptchaVerifyRequested?(
+        handler: (payload: {
+          requestId: string;
+          reason: "model-request" | "captcha-retry";
+        }) => void,
+      ): () => void;
+      /** Start Plan 人机验证结果回传（desktop 专属） */
+      submitCaptchaVerifyResult?(payload: {
+        requestId: string;
+        ok: boolean;
+        captchaVerifyParam?: string;
+        captchaRegion?: string;
+        errorMessage?: string;
+        errorKind?: string;
+      }): void;
       /** 订阅远程 workspace session 关闭事件，返回 disposer */
       onRemoteSessionClosed(handler: (event: RemoteSessionClosedEvent) => void): () => void;
       /** 订阅 Bot 触发的远程 workspace 重连成功事件，返回 disposer */

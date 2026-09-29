@@ -342,7 +342,7 @@ import { createLegacyTeamOrganizationResolver } from "./model-provider/legacyTea
 import { createObservableSettingService } from "./setting/observableSettingService.js";
 import { createCredentialService } from "./credential/credentialService.js";
 import { createBroadcastService } from "./broadcast/broadcastService.js";
-import { createZCodeAgentService } from "./zcode-agent/zcodeAgentService.js";
+import { createZCodeAgentService, type CreateZCodeAgentServiceOptions } from "./zcode-agent/zcodeAgentService.js";
 import type { ZCodeAgentCommandResolver } from "./zcode-agent/zcodeAgentProcessManager.js";
 import { buildAgentTelemetrySpawnEnv } from "./zcode-agent/agentTelemetryEnv.js";
 import { resolveZCodeAgentPresentationSurface } from "./zcode-agent/zcodeAgentPresentationSurface.js";
@@ -1326,6 +1326,11 @@ export function createLocalServices(options: {
   };
   /** 所属 Environment 的 ZCode Built-in Provider Config 物理路径。 */
   zcodeBuiltinProviderConfigFilePath: string;
+  /**
+   * Start Plan 人机验证执行端口（Host → Main → Renderer 桥）。
+   * 缺省 = 无渲染端可执行验证；需要验证的 Start Plan 请求按失败应答。
+   */
+  captchaVerificationPort?: CreateZCodeAgentServiceOptions["captchaVerificationPort"];
   /** HTTP Server 只有在调用方明确配置认证时才暴露跨 Environment Provisioning target。 */
   providerProvisioningTargetEnabled?: boolean;
   /** Desktop Host 私有通知；只在 Source 成功持久化后请求 Main 调度远端镜像。 */
@@ -2099,6 +2104,9 @@ export function createLocalServices(options: {
       : {}),
     accountRequestAuthService,
     resolveCaptchaConfig: createCaptchaConfigResolver({ clientConfigService }),
+    ...(options?.captchaVerificationPort
+      ? { captchaVerificationPort: options.captchaVerificationPort }
+      : {}),
     ...(modelSelectionReadinessSource ? { modelSelectionReadinessSource } : {}),
     authorizeLocalMediaPreviewPath: options?.authorizeLocalMediaPreviewPath,
     ...offPeakToolWiring,

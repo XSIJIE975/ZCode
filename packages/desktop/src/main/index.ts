@@ -168,6 +168,7 @@ import {
   loadWindow,
   spawnHostProcess,
 } from "./desktopHostProcess.js";
+import { registerCaptchaVerifyIpc } from "./desktopCaptchaIpc.js";
 import { spawnCronScheduler, type CronSchedulerHandle } from "./desktopCronScheduler.js";
 import {
   clearOAuthRoutesForWindow,
@@ -250,6 +251,10 @@ import { mainMemoryDiagnosticsRegistry } from "./mainMemoryDiagnostics.js";
 
 registerLocalMediaPreviewScheme(protocol);
 const localMediaPreviewPathRegistry = createLocalMediaPreviewPathRegistry();
+// Start Plan 人机验证 Main↔Renderer 桥：回执按 requestId 投回发起请求的 host 进程。
+const captchaVerifyBridge = registerCaptchaVerifyIpc(logger, (result) => {
+  postCaptchaVerifyResultToHost(result);
+});
 
 // e2e 由 Chromedriver 管理远程调试端口；如果这里继续固定到 9229，
 // 会和开发态已打开的 ZCode Dev 抢端口，导致 WebDriver session 创建前白屏超时。
@@ -652,6 +657,27 @@ function wakeCronScheduler(automationId: string): void {
 function wakeOffPeakScheduler(offPeakTaskId?: string): void {
   // 复用同一条 scheduler-wake 通道（tick 同时覆盖 cron 与 off-peak 分支），仅日志标签区分。
   cronScheduler?.wake(`offpeak:${offPeakTaskId ?? "sync"}`);
+}
+// 验证码回执路由：bridgeId 前缀是发起请求的 host 进程 pid 没有保障（多窗口），
+// 这里按「最后一次投递验证码请求的 host」路由——同一时刻至多一个 Start Plan 验证在跑
+// （CLI 侧 runtime-headers 端口对同请求合并），多窗口并发时以最近投递者为准。
+let lastCaptchaVerifyHostProcess: ElectronUtilityProcess | null = null;
+export function rememberCaptchaVerifyHostProcess(child: ElectronUtilityProcess): void {
+  lastCaptchaVerifyHostProcess = child;
+}
+function postCaptchaVerifyResultToHost(result: {
+  requestId: string;
+  ok: boolean;
+  captchaVerifyParam?: string;
+  captchaRegion?: string;
+  errorMessage?: string;
+  errorKind?: string;
+}): void {
+  const child =
+    lastCaptchaVerifyHostProcess && !lastCaptchaVerifyHostProcess.killed
+      ? lastCaptchaVerifyHostProcess
+      : resolveCronDispatchHost();
+  child?.postMessage({ type: HostMessageTypes.CaptchaVerifyResult, ...result });
 }
 // 选一个本地 host 执行派发：本期本地 workspace 由任一本地窗口 host 的 createTask 按 path 拉起/复用 agent。
 function resolveCronDispatchHost(): ElectronUtilityProcess | null {
@@ -1733,6 +1759,8 @@ function createWindowInstance(startupBootstrap: StartupWindowBootstrap = {}) {
           onCronSchedulerWakeRequested: wakeCronScheduler,
           onOffPeakSchedulerWakeRequested: wakeOffPeakScheduler,
           authorizeLocalMediaPreviewPath: localMediaPreviewPathRegistry.authorize,
+          requestCaptchaVerification: captchaVerifyBridge.requestCaptchaVerification,
+          rememberCaptchaVerifyHostProcess,
           // Bugfix: bot service 运行在本地窗口 host 内，/reconnect 必须能从本地 host 请求 main 创建远端 session。
           handleBotRemoteWorkspaceReconnectRequest: async ({
             win,
