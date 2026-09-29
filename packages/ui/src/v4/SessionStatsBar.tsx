@@ -1,5 +1,6 @@
-import { BadgeCheck, Settings2, ShieldAlert } from "lucide-react";
+import { BadgeCheck, Check, Settings2, ShieldAlert } from "lucide-react";
 import { useMemo } from "react";
+import { cn } from "@/components/lib/utils.js";
 import { Checkbox } from "@/components/ui/checkbox.js";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.js";
 import { useSessionDebug } from "@/hooks/useSessionDebug.js";
@@ -211,14 +212,38 @@ export function SessionStatsBar({
 /** 统计条配置入口：低对比齿轮 + Popover 勾选面板，改动即时生效并存 localStorage。 */
 function SessionStatsConfigButton() {
   const { intl } = useZCodeIntl();
-  const { segments, update } = useSessionStatsSegments();
-  const rows: Array<{ key: keyof SessionStatsSegments; labelId: string }> = [
-    { key: "turns", labelId: "sessionStats.config.turns" },
-    { key: "steps", labelId: "sessionStats.config.steps" },
-    { key: "lastTps", labelId: "sessionStats.config.lastTps" },
-    { key: "avgTps", labelId: "sessionStats.config.avgTps" },
-    { key: "input", labelId: "sessionStats.config.input" },
-    { key: "output", labelId: "sessionStats.config.output" },
+  const { segments, update, reset } = useSessionStatsSegments();
+  const rows: Array<{ key: keyof SessionStatsSegments; labelId: string; descId: string }> = [
+    {
+      key: "turns",
+      labelId: "sessionStats.config.turns",
+      descId: "sessionStats.config.desc.turns",
+    },
+    {
+      key: "steps",
+      labelId: "sessionStats.config.steps",
+      descId: "sessionStats.config.desc.steps",
+    },
+    {
+      key: "lastTps",
+      labelId: "sessionStats.config.lastTps",
+      descId: "sessionStats.config.desc.lastTps",
+    },
+    {
+      key: "avgTps",
+      labelId: "sessionStats.config.avgTps",
+      descId: "sessionStats.config.desc.avgTps",
+    },
+    {
+      key: "input",
+      labelId: "sessionStats.config.input",
+      descId: "sessionStats.config.desc.input",
+    },
+    {
+      key: "output",
+      labelId: "sessionStats.config.output",
+      descId: "sessionStats.config.desc.output",
+    },
   ];
   return (
     <Popover>
@@ -230,27 +255,55 @@ function SessionStatsConfigButton() {
       >
         <Settings2 className="size-3.5" aria-hidden="true" />
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-auto p-3">
-        <div className="text-ui-xs font-medium text-foreground">
+      <PopoverContent align="end" className="w-72 p-0">
+        <div className="border-b border-border px-3 py-2 text-ui-xs font-medium text-foreground">
           {intl.formatMessage({ id: "sessionStats.config.title" })}
         </div>
-        <div className="mt-2 flex flex-col gap-1.5">
+        <div className="flex flex-col p-1">
           {rows.map((row) => (
-            <label
+            <button
               key={row.key}
-              className="flex cursor-default items-center gap-2 text-ui-xs text-foreground"
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={segments[row.key]}
+              onClick={() => update({ [row.key]: !segments[row.key] })}
+              className="flex cursor-default items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
             >
-              <Checkbox
-                checked={segments[row.key]}
-                onCheckedChange={(checked) => update({ [row.key]: checked === true })}
-              />
-              {intl.formatMessage({ id: row.labelId })}
-            </label>
+              {/* 装饰性勾选框：整行 button 已是可访问控件，内部只做视觉。 */}
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors",
+                  segments[row.key]
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-input-border bg-input",
+                )}
+              >
+                {segments[row.key] ? <Check className="size-3" /> : null}
+              </span>
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-ui-xs font-medium text-foreground">
+                  {intl.formatMessage({ id: row.labelId })}
+                </span>
+                <span className="text-ui-xs text-foreground-subtlest">
+                  {intl.formatMessage({ id: row.descId })}
+                </span>
+              </span>
+            </button>
           ))}
         </div>
-        {/* 签名徽标固定展示，不参与配置（签名状态是诊断关键信息）。 */}
-        <div className="mt-2 text-ui-xs text-foreground-subtlest">
-          {intl.formatMessage({ id: "sessionStats.config.signingFixed" })}
+        <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2">
+          {/* 签名徽标固定展示，不参与配置（签名状态是诊断关键信息）。 */}
+          <span className="min-w-0 truncate text-ui-xs text-foreground-subtlest">
+            {intl.formatMessage({ id: "sessionStats.config.signingFixed" })}
+          </span>
+          <button
+            type="button"
+            onClick={reset}
+            className="shrink-0 rounded px-1.5 py-0.5 text-ui-xs text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none"
+          >
+            {intl.formatMessage({ id: "sessionStats.config.reset" })}
+          </button>
         </div>
       </PopoverContent>
     </Popover>

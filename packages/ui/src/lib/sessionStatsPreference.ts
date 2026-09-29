@@ -82,7 +82,12 @@ function subscribe(listener: () => void): () => void {
 export function useSessionStatsSegments(): {
   segments: SessionStatsSegments;
   update: (patch: Partial<SessionStatsSegments>) => void;
+  reset: () => void;
 } {
   const segments = useSyncExternalStore(subscribe, snapshot, snapshot);
-  return { segments, update: (patch) => setSegments({ ...snapshot(), ...patch }) };
+  return {
+    segments,
+    update: (patch) => setSegments({ ...snapshot(), ...patch }),
+    reset: () => setSegments({ ...DEFAULT_SEGMENTS }),
+  };
 }
