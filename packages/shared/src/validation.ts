@@ -423,6 +423,18 @@ export const hostBrowserExecuteResultMessageSchema = z.object({
   result: browserCommandResultSchema,
 });
 
+export const hostCaptchaVerifyResultMessageSchema = z
+  .object({
+    type: z.literal("captcha-verify-result"),
+    requestId: nonEmptyStringSchema,
+    ok: z.boolean(),
+    captchaVerifyParam: z.string().optional(),
+    captchaRegion: z.string().optional(),
+    errorMessage: z.string().optional(),
+    errorKind: z.string().optional(),
+  })
+  .strict();
+
 export const hostLocalMediaPreviewPathAuthorizeResultMessageSchema = z
   .object({
     type: z.literal("local-media-preview-path-authorize-result"),
@@ -499,6 +511,7 @@ export const hostIncomingMessageSchema = z.discriminatedUnion("type", [
   hostOffPeakRunMessageSchema,
   hostBrowserExecuteResultMessageSchema,
   hostLocalMediaPreviewPathAuthorizeResultMessageSchema,
+  hostCaptchaVerifyResultMessageSchema,
   hostCuaPipFocusChangedMessageSchema,
   hostProviderProvisioningExecuteMessageSchema,
 ]);
