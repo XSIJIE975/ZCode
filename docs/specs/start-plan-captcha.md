@@ -109,6 +109,13 @@ sequenceDiagram
 
 ## 五、验收场景
 
+> 已验证（2026-09-30）：场景 4/5 的 CLI 侧语义经 `runGenerateText` 端到端冒烟确认
+> （`E:\reverse-tmp\zcode-3144\captcha-retry-smoke.mjs`）：start-plan 3007 → 恰好 2 次
+> 物理尝试、第二次刷新 reason=captcha-retry 且取到新验证参数、无退避等待；
+> 连续 3007 → 恰好 2 次后原错误上抛；非 start-plan → 不领取、单次失败。
+> 单测：`apps/zcode-cli/packages/adapters/test/captcha-request-retry.test.ts`（7 组）、
+> `packages/services/test/captchaConfigResolver.test.ts`（4 组）。
+
 1. **skip 短路**：配置 `skip_model_request=true`（当前线上状态）→ Start Plan 请求行为与
    改动前逐字节一致：无验证码头、无渲染端交互、无新增网络调用；Coding Plan 签名链路不受影响。
 2. **无感验证**：skip=false + 阿里云无感通过 → 请求自动携带验证码头，用户无感知。
