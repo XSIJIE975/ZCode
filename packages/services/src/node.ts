@@ -400,6 +400,7 @@ import {
 import { createUsageStatsService } from "./usage-stats/usageStatsService.js";
 import { createCodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscriptionService.js";
 import { createClientConfigService } from "./client-config/clientConfigService.js";
+import { createCaptchaConfigResolver } from "./client-config/captchaConfigResolver.js";
 import { IClientConfigService } from "./client-config/clientConfig.js";
 import { createClientScenesService } from "./client-scenes/clientScenesService.js";
 import { createSkillsService } from "./skills/skillsService.js";
@@ -2082,11 +2083,22 @@ export function createLocalServices(options: {
           resolveOffPeakClientConfig: () => codingPlanSubscriptionService.getOffPeakClientConfig(),
           resolveOffPeakTaskService: () => offPeakTaskServiceForAgent,
         };
+  // 公开配置服务的唯一实例：Agent 的验证码门禁与窗口级读取共用同一条请求缓存，
+  // 不能各建一份（第二份缓存会让 skip 开关在两个读者之间表现不一致）。
+  const clientConfigService = createClientConfigService({
+    apiClient,
+    resolveRequestContext: async () => ({
+      endpointOrigin: await resolveCurrentZCodeEndpointOrigin(),
+      appVersion: ZCODE_VERSION,
+      platform: `${process.platform}-${process.arch}`,
+    }),
+  });
   const zcodeAgentService = createZCodeAgentService({
     ...(agentAccountProviderConfigSource
       ? { accountProviderConfigSource: agentAccountProviderConfigSource }
       : {}),
     accountRequestAuthService,
+    resolveCaptchaConfig: createCaptchaConfigResolver({ clientConfigService }),
     ...(modelSelectionReadinessSource ? { modelSelectionReadinessSource } : {}),
     authorizeLocalMediaPreviewPath: options?.authorizeLocalMediaPreviewPath,
     ...offPeakToolWiring,
@@ -2475,17 +2487,7 @@ export function createLocalServices(options: {
       }),
     )
     .register(ICodingPlanSubscriptionService, codingPlanSubscriptionService)
-    .register(
-      IClientConfigService,
-      createClientConfigService({
-        apiClient,
-        resolveRequestContext: async () => ({
-          endpointOrigin: await resolveCurrentZCodeEndpointOrigin(),
-          appVersion: ZCODE_VERSION,
-          platform: `${process.platform}-${process.arch}`,
-        }),
-      }),
-    )
+    .register(IClientConfigService, clientConfigService)
     .register(IClientScenesService, createClientScenesService({ apiClient }))
     .register(
       IOffPeakTaskService,
