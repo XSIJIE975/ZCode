@@ -257,3 +257,36 @@ start-plan 请求做 Client Request Signing（`requiresClientRequestSigning` 显
 Host 侧 captcha-retry 的 runtime headers 刷新协议（reason 枚举扩展）、
 `CaptchaRequestRetry` 单次额外尝试语义、3007 失败分类调整。属于独立的
 跨包特性（renderer + services/host + adapters），需要单独排期实现。
+
+### 3.14.4 后续（2026-09-29）：模型请求验证码门禁被关闭
+
+更新日志「关闭模型请求验证码校验」的落地方式，自 3.14.4 bundle 还原（方法同前：
+安装目录只读，asar / glm 复制到临时目录后 diff）：
+
+**服务端**（`GET /api/v1/client/configs` 实测）：
+
+```json
+"captcha": { "enabled": true, "prefix": "…", "region": "cn",
+             "sceneId": "…", "skip_model_request": true }
+```
+
+网关不再对 Start Plan 模型请求强制验证码头——开源版（从未有 captcha 链路）
+现可直用 Start Plan，即服务端放行的直接证据。
+
+**客户端 3.14.4 三处配合改动**（全量字面量差分确证无其它逻辑变化）：
+
+1. host `getCaptchaConfig()`：把下发的 `skip_model_request` 规范化为
+   `skipModelRequest` 暴露给渲染端（host/index.js 唯一逻辑差异，+105 字节）。
+2. 渲染端验证码头刷新入口：新增短路
+   `captcha.enabled===false || captcha.skipModelRequest===true → {headers:{}}`，
+   不再弹阿里云验证码、不再因配置缺失抛错（渲染端唯一逻辑差异）。
+3. CLI `applyModelRequestAuth`：合并请求鉴权时剥离残留的
+   `x-aliyun-captcha-verify-param/-region` 头，防旧验证参数复用
+   （zcode.cjs 唯一逻辑差异，+149 字节）。
+
+**与本分支的关系**：签名链路（KDF 常量、握手路径、`codingPlanSignature` 配置、
+`requiresClientRequestSigning`）在 3.14.4 中逐字节同位、零改动，移植仍对齐。
+billing/claim 的验证码（套餐领取）路径也逐字节未动——关闭的只有模型请求这一处。
+开源版与 3.14.4 的行为差异仅在服务端重新开启 `skip_model_request=false` 时显现：
+3.14.4 会弹验证码并携带头重试，开源版回到 3007 报错。captcha 链路移植与否
+由此从「补齐功能」降级为「对冲服务端策略回摆」，优先级自定。
