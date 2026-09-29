@@ -290,3 +290,25 @@ billing/claim 的验证码（套餐领取）路径也逐字节未动——关闭
 开源版与 3.14.4 的行为差异仅在服务端重新开启 `skip_model_request=false` 时显现：
 3.14.4 会弹验证码并携带头重试，开源版回到 3007 报错。captcha 链路移植与否
 由此从「补齐功能」降级为「对冲服务端策略回摆」，优先级自定。
+
+### captcha 链路移植完成（2026-09-30）
+
+按 §八 3.14.4 后续的评估开工并完成（spec：`docs/specs/start-plan-captcha.md`）：
+
+- **CLI**：`CaptchaRequestRetry`（claim 条件矩阵与发行版逐字对齐）接入 generate/stream
+  重试循环；openai-compatible 空流合成 3007；`applyModelRequestAuth` 剥残留验证码头；
+  sanitize 集合补 `x-aliyun-captcha-verify-param`（顺带补齐 `x-client-sig/pow`）。
+- **Host**：skip 判定（`enabled=false`/`skipModelRequest=true` → 纯账号鉴权应答）；
+  需要验证经 `captchaVerificationPort` 索取参数并合并进鉴权头；配置缺失/端口缺失
+  显式失败（不静默放行）。配置解析 60s TTL + in-flight 去重 + 失败不缓存（f3 语义）。
+- **桌面桥**：host → main（parentPort）→ renderer（`CaptchaVerifyRequested`）→
+  AliyunCaptcha → 回执（`CaptchaVerifyResult`）→ main 按发起 host 进程路由回执。
+- **渲染端**：SDK 加载（memoized+重试）、控制器生命周期（configKey 复用 20min TTL、
+  init 串行 drain）、fail 回调状态机（终态通过藏在 fail / F008 复位 / 无感升交互）、
+  验证执行（无感优先、120s 总时限、deferred-success 跳过超时）、certifyId 防重复告警；
+  `StartPlanCaptchaHost` 挂 Root Provider 树，仅 desktop 平台订阅。
+- **验证**：单测 11 组（claim 矩阵/时序/空流合成/配置解析/协议枚举）+ 端到端冒烟
+  （3007→captcha-retry→成功恰 2 次尝试、耗尽上抛、非 start-plan 不领取）+
+  `pnpm typecheck` 全仓过、lint 0 error（71 warning 为基线）、architecture check 0 违规。
+- 与发行版的已知差异：skip 判定在 Host 而非渲染端（行为等价）；3007 错误卡片的
+  「重试」按钮未做（错误语义与发行版一致，按钮属 UI 增强）。

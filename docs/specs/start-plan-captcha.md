@@ -3,6 +3,9 @@
 > 逆向依据：发行版 3.14.3/3.14.4 bundle 还原（`docs/reverse-engineering/coding-plan-quota-coefficient.md` §八）。
 > 3.14.4 起服务端默认 `captcha.skip_model_request=true`，本特性在当前服务端状态下**不触发**；
 > 移植目的：服务端策略回摆（skip=false）时开源版 Start Plan 可用，行为与发行版逐项对齐。
+>
+> **状态（2026-09-30）：已实现**。提交链 69c4a1d（协议+spec）→ 4d66d7b（CLI 重试）→ 890b25e（Host 门禁）→ c78bfc0（桌面桥）→ 456a8d3（UI 运行器）→ 4979e1e（schema 收口）。
+> 未含：3007 失败卡片的「重试」入口 UI（Host 失败应答已让 CLI 报不可重试错误，与发行版错误文案等价；发行版的重试按钮属错误卡片增强，可后续单独加）。
 
 ## 一、产品规则
 
