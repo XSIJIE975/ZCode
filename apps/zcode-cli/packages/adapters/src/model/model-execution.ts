@@ -686,17 +686,26 @@ function resolveCodingPlanSignatureHeaders(
   return typeof config.headers === "function" ? config.headers() : config.headers;
 }
 
+/** 验证码头单次有效，合并新鉴权材料前必须剥掉上一轮的残留（复用旧 param 会触发 F008）。 */
+const STALE_CAPTCHA_VERIFY_HEADERS = new Set([
+  "x-aliyun-captcha-verify-param",
+  "x-aliyun-captcha-verify-region",
+]);
+
 function applyModelRequestAuth(
   providerConfig: AiSdkProviderConfig,
   requestAuth: ModelRequestAuth | undefined,
 ): AiSdkProviderConfig {
   if (!requestAuth) return providerConfig;
+  const headersWithoutStaleCaptcha = Object.fromEntries(
+    Object.entries(providerConfig.headers ?? {}).filter(
+      ([name]) => !STALE_CAPTCHA_VERIFY_HEADERS.has(name.toLowerCase()),
+    ),
+  );
   return {
     ...providerConfig,
     ...(requestAuth.apiKey ? { apiKey: requestAuth.apiKey } : {}),
-    ...(requestAuth.headers
-      ? { headers: mergeModelRequestHeaders(providerConfig.headers, requestAuth.headers) }
-      : {}),
+    headers: mergeModelRequestHeaders(headersWithoutStaleCaptcha, requestAuth.headers),
   };
 }
 

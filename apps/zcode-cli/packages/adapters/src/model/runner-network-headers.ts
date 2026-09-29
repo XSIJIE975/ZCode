@@ -9,6 +9,10 @@ const redactedHeaderNames = new Set([
   "api-key",
   "openai-api-key",
   "x-off-peak-ticket-id",
+  // 签名与验证码材料只在当次请求有效；观测面只保留头名，取值一律脱敏（发行版同集合）。
+  "x-client-sig",
+  "x-client-pow",
+  "x-aliyun-captcha-verify-param",
 ]);
 
 export function sanitizeModelNetworkHeaders(value: unknown): Record<string, string> {

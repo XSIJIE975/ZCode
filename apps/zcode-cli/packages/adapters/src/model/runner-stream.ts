@@ -38,6 +38,7 @@ import {
   logStreamFailureDiagnostics,
   recordStreamChunkDiagnostic,
 } from "./runner-diagnostics.js";
+import { CaptchaRequestRetry, createZcodePlanCaptchaEmptyStreamError } from "./captcha-request-retry.js";
 import { canRetryEmptyCompletion, scheduleEmptyCompletionRetry } from "./empty-completion-retry.js";
 import { createStreamTextOptions } from "./runner-options.js";
 import {
@@ -120,18 +121,20 @@ export async function* runStreamText(input: {
   let requestMessages = input.request.messages;
   let signatureRepairAttempted = false;
   let emptyCompletionRetryCount = 0;
+  // Start Plan 验证码重试机会：单请求至多一次额外物理尝试，不占普通 retry 预算。
+  const captchaRetry = new CaptchaRequestRetry(input.request, input.resolved);
 
   for (
     let attempt = 1;
     retryAttemptLoopContinues(
       retryBudget,
       attempt,
-      input.retry.maxAttempts + Number(signatureRepairAttempted),
+      input.retry.maxAttempts + Number(signatureRepairAttempted) + captchaRetry.extraAttempts,
     );
     attempt += 1
   ) {
     const retryBudgetAttempt =
-      attempt - Number(signatureRepairAttempted);
+      attempt - Number(signatureRepairAttempted) - captchaRetry.extraAttempts;
     const startedAt = Date.now();
     // SSE idle timeout 后的重试如果仍固定首请求窗口，容易被同一段 provider 静默窗口反复打断；
     // core recovery 和 adapter 内部 retry 都统一按重试次数每次增加 30s。
@@ -156,7 +159,7 @@ export async function* runStreamText(input: {
       {
         ...baseStatusContext,
         maxAttempts: statusMaxAttempts(
-          Number(signatureRepairAttempted),
+          Number(signatureRepairAttempted) + captchaRetry.extraAttempts,
         ),
       },
       attempt,
@@ -279,6 +282,7 @@ export async function* runStreamText(input: {
     try {
       resolved = await resolveModelForAttempt({
         attempt,
+        reason: captchaRetry.takeReason(),
         request: attemptRequest,
         resolveModel: input.resolveModel,
       });
@@ -536,15 +540,41 @@ export async function* runStreamText(input: {
             );
           }
 
+          const zeroOutputCompletion = isZeroOutputModelCompletion({
+            finishReason: diagnostics.finishReason,
+            reasoningLength: diagnostics.reasoningDeltaChars,
+            textLength: diagnostics.textDeltaChars,
+            toolCallCount: diagnostics.toolCallCount,
+            usage: diagnostics.usage,
+          });
           if (
+            zeroOutputCompletion &&
+            input.request.preserveProviderStreamBoundaries !== true
+          ) {
+            // 网关验签被拒的 openai-compatible 流可能以 200 空流收场而非显式 3007；
+            // 请求带过验证码头且输出为空时按验证码拒绝合成业务错误，走 3007 重试路径。
+            const captchaEmptyStreamError = createZcodePlanCaptchaEmptyStreamError({
+              headers: resolved.headers,
+              providerId: String(statusContext.providerId),
+              providerKind: resolved.providerKind,
+              startPlan: resolved.accountAccess?.mode === "start-plan",
+            });
+            if (captchaEmptyStreamError) {
+              throw new TerminalStreamChunkError(
+                toAdapterError(
+                  captchaEmptyStreamError,
+                  classifyModelFailure(captchaEmptyStreamError, input.request.abortSignal),
+                  statusContext,
+                  attempt,
+                  { errorPhase: "stream" },
+                ),
+              );
+            }
+          }
+
+          if (
+            zeroOutputCompletion &&
             input.request.preserveProviderStreamBoundaries !== true &&
-            isZeroOutputModelCompletion({
-              finishReason: diagnostics.finishReason,
-              reasoningLength: diagnostics.reasoningDeltaChars,
-              textLength: diagnostics.textDeltaChars,
-              toolCallCount: diagnostics.toolCallCount,
-              usage: diagnostics.usage,
-            }) &&
             canRetryEmptyCompletion({
               abortSignal: input.request.abortSignal,
               attempt,
@@ -772,6 +802,23 @@ export async function* runStreamText(input: {
       if (retryWithRepairedHistory) {
         failureDecision.canRetry = true;
       }
+      // Start Plan 3007：领取唯一一次验证码重试机会；veto 与发行版一致——请求未构造完成、
+      // 已发可见输出边界、已向消费者提交流输出、保留流边界且失败落在响应体阶段。
+      const captchaRetryClaimed = captchaRetry.claim(
+        error,
+        options === undefined ||
+          emittedRetryBoundaryEvent ||
+          streamOutputCommitted ||
+          (input.request.preserveProviderStreamBoundaries === true &&
+            failureDecision.context?.streamFailurePhase === "response_body"),
+      );
+      if (captchaRetryClaimed) {
+        failureDecision.canRetry = true;
+        statusContext = {
+          ...statusContext,
+          maxAttempts: statusMaxAttempts(Number(signatureRepairAttempted) + captchaRetry.extraAttempts),
+        };
+      }
 
       logStreamFailureDiagnostics({
         attempt,
@@ -819,6 +866,25 @@ export async function* runStreamText(input: {
         statusContext,
         statusSink: input.statusSink,
       });
+
+      if (captchaRetryClaimed) {
+        // 验证码被拒：立即重试一次（不退避）。下一次 attempt 的刷新原因已由 takeReason()
+        // 标记为 captcha-retry，Host/渲染端会现跑一次新验证并回传新的验证码头。
+        await publishRetryScheduledStatus(
+          input,
+          statusContext,
+          attempt,
+          0,
+          {
+            ...failure,
+            retryReason: ModelRetryReason.AuthRefresh,
+          },
+          requestHeaders,
+          responseHeaders,
+          admission,
+        );
+        continue;
+      }
 
       if (retryWithRepairedHistory) {
         await publishRetryScheduledStatus(
