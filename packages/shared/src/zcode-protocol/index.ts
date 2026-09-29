@@ -2393,7 +2393,11 @@ export const zcodeUserInputResponseSchema = z
   .strict();
 export type ZCodeUserInputResponse = z.infer<typeof zcodeUserInputResponseSchema>;
 
-export const zcodeProviderRuntimeHeadersRequestReasonSchema = z.enum(["model-request"]);
+export const zcodeProviderRuntimeHeadersRequestReasonSchema = z.enum([
+  "model-request",
+  // 网关 3007（captcha verify failed）后占用唯一额外重试机会时的刷新；Start Plan 专属。
+  "captcha-retry",
+]);
 export const zcodeProviderRuntimeHeadersRequestParamsSchema = z
   .object({
     requestId: nonEmptyString,
