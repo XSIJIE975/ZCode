@@ -120,7 +120,7 @@ core 日志、v4 facts/projection 与 TUI 的显式忽略、桌面端开发者�
 
 - 私钥握手与 gate 均为网络新增调用，只在命中签名条件的 provider 上发生；失败路径全部 fail-open（未签名发送），不影响可用性。
 - 折算比例本身（0.67）与服务端 gate 开关（`codingPlanSignature.enable`）由服务端控制，客户端无法也不应本地配置。
-- `apiKey` 非 `id.secret` 形态且 gate 开启时会 fail-closed——与发行版一致（普通 `sk-` Key 的 provider 通常不在官方域，不会进入签名分支）。
+- `apiKey` 非 `id.secret` 形态且 gate 开启时降级 `unsigned_sent(invalid_credential)` 继续发送（第八轮审查后的现行行为；普通 `sk-` Key 的按量 provider 不受影响）。
 
 ## 七、第八轮复核：路由偏差修正与全量逐项重核（2026-09-28）
 
