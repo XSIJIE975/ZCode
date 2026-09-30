@@ -926,6 +926,16 @@ export const hostBrowserExecuteRequestResponseSchema = z.object({
   command: browserCommandSchema,
 });
 
+export const hostCaptchaVerifyRequestResponseSchema = z
+  .object({
+    type: z.literal("captcha-verify-request"),
+    requestId: nonEmptyStringSchema,
+    sessionId: nonEmptyStringSchema,
+    providerId: nonEmptyStringSchema,
+    reason: z.enum(["model-request", "captcha-retry"]),
+  })
+  .strict();
+
 export const hostLocalMediaPreviewPathAuthorizeRequestResponseSchema = z
   .object({
     type: z.literal("local-media-preview-path-authorize-request"),
@@ -1038,6 +1048,7 @@ export const hostResponseMessageSchema = z.discriminatedUnion("type", [
   hostFeedbackLogArchiveRequestResponseSchema,
   hostBrowserExecuteRequestResponseSchema,
   hostLocalMediaPreviewPathAuthorizeRequestResponseSchema,
+  hostCaptchaVerifyRequestResponseSchema,
   hostNetworkTelemetryBatchResponseSchema,
   hostProviderProvisioningSourceChangedResponseSchema,
   hostProviderProvisioningExecutionResultResponseSchema,

@@ -20,6 +20,8 @@ export interface RunCaptchaVerificationInput {
   providerId: string;
   signal?: AbortSignal;
   onInteractiveChallenge?: () => void;
+  /** 跳过无感直接弹验证窗（发行版 preferInteractive；调试/演示用）。 */
+  preferInteractive?: boolean;
 }
 
 /**
@@ -57,28 +59,29 @@ export async function runCaptchaVerification(
       captchaRuntime.pendingVerification = attemptToken;
     });
 
-    const attemptKind = "auto";
+    const attemptKind = input.preferInteractive === true ? "interactive" : "auto";
     logger.info("[captcha] aliyun execute start", {
       allowInteractive: true,
       attemptKind,
       timeoutMs: VERIFICATION_TIMEOUT_MS,
     });
 
-    // 触发：无感 API 在场直接跑；否则回退按钮点击（会弹验证窗）。
+    // 触发：preferInteractive 直接点按钮弹验证窗；否则无感 API 在场先跑无感，
+    // 被拒（CAPTCHA_INTERACTIVE_REQUIRED）再升交互；无 API 时回退按钮点击。
     void (async () => {
       const readPending = (): PendingVerification | undefined => captchaRuntime.pendingVerification;
       try {
         const instance = await waitForInstance(target, signal);
         if (!isCurrentController(target)) return;
         if (readPending() !== attemptToken) return;
-        if (typeof instance.startTracelessVerification === "function") {
+        if (input.preferInteractive !== true && typeof instance.startTracelessVerification === "function") {
           logger.info("[captcha] aliyun start traceless verification", { attemptKind });
           instance.startTracelessVerification();
           return;
         }
         input.onInteractiveChallenge?.();
         interactiveDisplayed = true;
-        logger.info("[captcha] aliyun fallback button click", { attemptKind });
+        logger.info("[captcha] aliyun trigger button click", { attemptKind });
         target.buttonElement.click();
       } catch (error) {
         if (!isCurrentController(target)) return;

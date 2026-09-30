@@ -92,6 +92,10 @@ export function useStartPlanCaptchaVerification(dependencies: CaptchaHookDeps): 
             config,
             requestId: request.requestId,
             providerId: "",
+            // 调试开关：localStorage 设 zcode-captcha-force-interactive=1 时跳过无感直接弹窗。
+            preferInteractive:
+              typeof localStorage !== "undefined" &&
+              localStorage.getItem("zcode-captcha-force-interactive") === "1",
             onInteractiveChallenge: () => {
               logger.info("[captcha] interactive challenge displayed", {
                 requestId: request.requestId,
