@@ -124,7 +124,11 @@ export async function runCaptchaVerification(
     signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
-      return await result;
+      const param = await result;
+      // 成功即复位：SDK 实例的验证会话已消费，复用同一实例再触发会 F008 重复提交；
+      // 下次验证重建控制器换新 certifyId（abort/失败路径由各自分支复位）。
+      resetController(captchaRuntime.controller);
+      return param;
     } finally {
       clearTimeout(timeoutHandle);
       signal?.removeEventListener("abort", onAbort);

@@ -122,17 +122,19 @@ export function handleSdkFail(
     return;
   }
 
-  // 3. F008：验证数据已提交过，整体复位防继续复用。
+  // 3. F008：验证数据已提交过。先取出 pending reject（复位会把 pending 清空，
+  //    顺序颠倒会让 reject 落空、验证 Promise 永远悬起），再整体复位防继续复用。
   if (isDuplicateSubmission(payload)) {
     logger.warn("[captcha] aliyun sdk duplicate submission", undefined);
-    hooks.resetController();
     if (pending && !pending.allowInteractive) {
       hooks.rejectCurrentPending(new CaptchaInteractiveRequiredError());
+      hooks.resetController();
       return;
     }
     hooks.rejectCurrentPending(
       payload instanceof Error ? payload : new Error("Captcha verification data was already submitted."),
     );
+    hooks.resetController();
     return;
   }
 
