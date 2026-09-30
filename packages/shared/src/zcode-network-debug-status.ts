@@ -3,6 +3,7 @@ import type {
   QueryId,
   TraceId,
   ZCodeStreamEvent,
+  ZCodeTaskNetworkDebugStatusClientSigning,
   ZCodeTaskNetworkDebugStatusType,
 } from "./zcode-task-types-core.js";
 
@@ -12,6 +13,7 @@ const MODEL_NETWORK_STATUS_TYPES = new Set<ZCodeTaskNetworkDebugStatusType>([
   "model_request_failed",
   "model_retry_scheduled",
   "model_stream_stalled",
+  "model_client_signing",
 ]);
 
 export function zcodeTaskNetworkDebugStatusFromPayload(params: {
@@ -100,6 +102,9 @@ export function zcodeTaskNetworkDebugStatusFromPayload(params: {
       ? { message: stringValue(params.payload.message) }
       : {}),
     ...(timestamp ? { timestamp } : {}),
+    ...(clientSigningValue(params.payload.clientSigning)
+      ? { clientSigning: clientSigningValue(params.payload.clientSigning) }
+      : {}),
     requestHeaders,
     responseHeaders,
     requestHeaderCount:
@@ -108,6 +113,27 @@ export function zcodeTaskNetworkDebugStatusFromPayload(params: {
     responseHeaderCount:
       nonNegativeIntegerValue(params.payload.responseHeaderCount) ??
       Object.keys(responseHeaders).length,
+  };
+}
+
+function clientSigningValue(value: unknown): ZCodeTaskNetworkDebugStatusClientSigning | undefined {
+  const record = asRecord(value);
+  const kind = stringValue(record.kind);
+  if (!kind) return undefined;
+  const attempt = positiveIntegerValue(record.signedAttempt);
+  const httpStatus = nonNegativeIntegerValue(record.httpStatus);
+  const headers = stringRecordValue(record.headers);
+  return {
+    kind,
+    ...(stringValue(record.reason) ? { reason: stringValue(record.reason) } : {}),
+    ...(attempt !== undefined ? { signedAttempt: attempt } : {}),
+    ...(stringValue(record.errorKind) ? { errorKind: stringValue(record.errorKind) } : {}),
+    ...(httpStatus !== undefined ? { httpStatus } : {}),
+    ...(typeof record.businessCode === "number" || typeof record.businessCode === "string"
+      ? { businessCode: record.businessCode }
+      : {}),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    ...(stringValue(record.requestUrl) ? { requestUrl: stringValue(record.requestUrl) } : {}),
   };
 }
 

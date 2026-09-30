@@ -225,8 +225,17 @@ export function spawnHostProcess(
     }) => void;
     /** host 中 manual run 落库后请求 main 立即唤醒 scheduler。 */
     onCronSchedulerWakeRequested?: (automationId: string) => void;
-    /** host 中闲时任务翻 schedulable 后请求 main 立即唤醒 scheduler。 */
-    onOffPeakSchedulerWakeRequested?: (offPeakTaskId?: string) => void;
+  /** host 中闲时任务翻 schedulable 后请求 main 立即唤醒 scheduler。 */
+  onOffPeakSchedulerWakeRequested?: (offPeakTaskId?: string) => void;
+  /** host → main：Start Plan 模型请求需要人机验证；main 转渲染端 AliyunCaptcha 执行。 */
+  requestCaptchaVerification?: (input: {
+    requestId: string;
+    sessionId: string;
+    providerId: string;
+    reason: "model-request" | "captcha-retry";
+  }) => Promise<{ captchaVerifyParam: string; captchaRegion?: string }>;
+  /** 验证码回执路由：记住发起请求的 host 进程（ElectronUtilityProcess）。 */
+  rememberCaptchaVerifyHost?: (child: ElectronUtilityProcess) => void;
     // browser-use：main 用 WebContentsView+CDP 执行一条命令。实现由宿主注入；缺省则 backend_unavailable。
     handleBrowserExecuteRequest?: (params: {
       win: BrowserWindow;
@@ -395,6 +404,44 @@ export function spawnHostProcess(
             requestId: request.requestId,
             ok: false,
             error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.CaptchaVerifyRequest) {
+      // Start Plan 人机验证：Main 中转到可见窗口渲染端跑 AliyunCaptcha，结果按 bridgeId 回 Host。
+      const request = result.data;
+      // 回执路由：记住发起请求的 host 进程（多窗口并发时以最近投递者为准）。
+      dependencies.rememberCaptchaVerifyHost?.(child);
+      const requestCaptcha = dependencies.requestCaptchaVerification;
+      if (!requestCaptcha) {
+        child.postMessage({
+          type: HostMessageTypes.CaptchaVerifyResult,
+          requestId: request.requestId,
+          ok: false,
+          errorKind: "captcha_unavailable",
+        });
+        return;
+      }
+      void requestCaptcha(request)
+        .then((verification) => {
+          child.postMessage({
+            type: HostMessageTypes.CaptchaVerifyResult,
+            requestId: request.requestId,
+            ok: true,
+            captchaVerifyParam: verification.captchaVerifyParam,
+            ...(verification.captchaRegion
+              ? { captchaRegion: verification.captchaRegion }
+              : {}),
+          });
+        })
+        .catch((error) => {
+          child.postMessage({
+            type: HostMessageTypes.CaptchaVerifyResult,
+            requestId: request.requestId,
+            ok: false,
+            errorKind: error instanceof Error ? error.message : String(error),
           });
         });
       return;

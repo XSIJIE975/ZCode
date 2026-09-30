@@ -24,6 +24,7 @@ import {
   type AiSdkResolvedModel,
   type AiSdkNetworkConfig,
   type AiSdkModelExecutionConfig,
+  type AiSdkModelExecutionOptions,
   type EnvRecord,
 } from "./model-execution.js";
 import {
@@ -56,6 +57,8 @@ export { normalizeUsage, toModelStreamEvent } from "./runner-normalization.js";
 
 export interface AiSdkModelAdapterOptions {
   defaultHeaders?: AiSdkModelExecutionConfig["defaultHeaders"];
+  codingPlanSignature?: AiSdkModelExecutionConfig["codingPlanSignature"];
+  clientRequestSigningState?: AiSdkModelExecutionOptions["clientRequestSigningState"];
   network?: AiSdkNetworkConfig;
   runtime?: AiSdkModelRuntime;
   env?: EnvRecord;
@@ -92,10 +95,14 @@ export class AiSdkModelAdapter {
     this.execution = new AiSdkModelExecution(
       {
         defaultHeaders: options.defaultHeaders,
+        ...(options.codingPlanSignature ? { codingPlanSignature: options.codingPlanSignature } : {}),
         ...(options.network ? { network: options.network } : {}),
         ...(options.env ? { env: options.env } : {}),
       },
       {
+        ...(options.clientRequestSigningState
+          ? { clientRequestSigningState: options.clientRequestSigningState }
+          : {}),
         ...(options.logger ? { logger: options.logger } : {}),
       },
     );

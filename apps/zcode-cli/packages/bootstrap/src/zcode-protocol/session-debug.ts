@@ -55,12 +55,36 @@ export function observeSessionDebug(record: SessionRecord, event: SessionEvent):
     String(event.sessionId) !== record.app.sessionId
   )
     return;
+  observeSessionDebugEntry(record, event, undefined);
+}
+
+/**
+ * 子代理（detached child session）的网络/签名事件并入父会话调试快照：
+ * 子代理模型请求走独立 sessionId，主链路 observeSessionDebug 按 sessionId 过滤会
+ * 丢掉它们；开发者工具按父会话查询，因此这里放宽归属并保留来源标注。
+ * 只并入 networkEntries/latestClientSigning，轮次与命中率仍只收主会话 main_turn。
+ */
+export function observeDetachedSessionDebug(record: SessionRecord, event: SessionEvent): void {
+  if (event.type !== SessionEventType.ModelNetworkStatus) return;
+  observeSessionDebugEntry(record, event, String(event.sessionId));
+}
+
+function observeSessionDebugEntry(
+  record: SessionRecord,
+  event: SessionEvent,
+  detachedSessionId: string | undefined,
+): void {
   const payload = event.payload as ModelNetworkStatusPayload;
   const mapped = zcodeTaskNetworkDebugStatusFromPayload({
     taskId: record.app.sessionId,
     traceId: event.traceId,
     eventId: String(event.id),
-    payload: { ...payload, model: { providerId: payload.providerId, modelId: payload.modelId } },
+    payload: {
+      ...payload,
+      // detached 子代理事件把来源 sessionId 写进 querySource 旁边，UI 面板标注用。
+      ...(detachedSessionId !== undefined ? { sessionId: detachedSessionId } : {}),
+      model: { providerId: payload.providerId, modelId: payload.modelId },
+    },
   });
   if (!mapped) return;
   let observation = observations.get(record);
@@ -78,6 +102,27 @@ export function observeSessionDebug(record: SessionRecord, event: SessionEvent):
   const parsedAt = Date.parse(payload.timestamp);
   const recordedAt = Number.isFinite(parsedAt) ? parsedAt : event.timestamp.getTime();
   const state = observation.snapshot;
+  if (mapped.statusType === "model_client_signing" && entry.clientSigning) {
+    // 旁路指针：记录最近一次签名结论，不随 networkEntries 窗口滑出而丢失，
+    // 常驻徽标/信息条据此展示（历史会话冷启动时为空，由持久化用量数据补位）。
+    state.latestClientSigning = entry.clientSigning;
+    // 签名观测描述的是随请求携带的签名头与最终结果，并入同一 requestId 的
+    // 最新请求条目展示，不再单独成行（用户在请求条目内直接看到签名状态）。
+    // 同一请求多条观测按到达顺序覆盖，条目上保留最终结果。找不到对应请求
+    // 条目时退回独立行，保证观测不丢。
+    let targetIndex = -1;
+    for (let index = 0; index < state.networkEntries.length; index += 1) {
+      if (state.networkEntries[index].requestId === mapped.requestId) {
+        targetIndex = index;
+      }
+    }
+    if (targetIndex >= 0) {
+      state.networkEntries = state.networkEntries.map((existing, index) =>
+        index === targetIndex ? { ...existing, clientSigning: entry.clientSigning } : existing,
+      );
+      return;
+    }
+  }
   state.networkEntries = [
     ...state.networkEntries,
     {
@@ -88,9 +133,12 @@ export function observeSessionDebug(record: SessionRecord, event: SessionEvent):
       requestHeaders: boundedHeaders(entry.requestHeaders),
       responseHeaders: boundedHeaders(entry.responseHeaders),
       ...(entry.message ? { message: entry.message.slice(0, MAX_MESSAGE_LENGTH) } : {}),
+      // detached 子代理条目标注来源会话（subagent_<agentId>），UI 面板区分主/子代理。
+      ...(detachedSessionId !== undefined ? { subagentSessionId: detachedSessionId } : {}),
     },
   ].slice(-SESSION_DEBUG_LIMITS.network);
   if (
+    detachedSessionId !== undefined ||
     payload.type !== "model_request_completed" ||
     payload.querySource !== "main_turn" ||
     !remember(observation.completedRequests, payload.requestId)

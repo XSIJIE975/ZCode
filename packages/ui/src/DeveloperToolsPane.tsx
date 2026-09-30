@@ -3,6 +3,7 @@ import { ActivityIcon, BugIcon, NetworkIcon } from "lucide-react";
 import type { SessionDebugNetworkEntry } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useSessionDebug } from "@/hooks/useSessionDebug.js";
+import { isSigningAttentionKind, signingKindLabelId } from "@/lib/clientSigningLabels.js";
 
 interface DeveloperToolsPaneProps {
   workspacePath: string;
@@ -57,7 +58,16 @@ function networkStatusLabelId(statusType: SessionDebugNetworkEntry["statusType"]
       return "developerTools.network.status.retry";
     case "model_stream_stalled":
       return "developerTools.network.status.stalled";
+    case "model_client_signing":
+      return "developerTools.network.status.clientSigning";
   }
+}
+
+/** 只有实际存在 header 时才渲染区块：请求开始等事件没有响应头，不展示空块。 */
+function hasHeaders(
+  headers: Record<string, string> | undefined,
+): headers is Record<string, string> {
+  return Boolean(headers && Object.keys(headers).length > 0);
 }
 
 function HeaderDetails({
@@ -241,82 +251,185 @@ export function DeveloperToolsPane({
             </div>
           ) : (
             <div className="space-y-2">
-              {networkEntries.map((entry) => (
-                <div
-                  key={entry.eventKey}
-                  className="overflow-hidden rounded-md border border-border"
-                >
-                  <div className="space-y-2 px-3 py-2">
-                    <div className="flex min-w-0 items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-ui-base font-semibold text-foreground">
-                          {intl.formatMessage({ id: networkStatusLabelId(entry.statusType) })}
+              {networkEntries.map((entry) => {
+                return (
+                  <div
+                    key={entry.eventKey}
+                    className="overflow-hidden rounded-md border border-border"
+                  >
+                    <div className="space-y-2 px-3 py-2">
+                      <div className="flex min-w-0 items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-ui-base font-semibold text-foreground">
+                            {intl.formatMessage({ id: networkStatusLabelId(entry.statusType) })}
+                          </div>
+                          <div className="truncate font-mono text-ui-xs text-foreground-subtle">
+                            {entry.requestId ?? entry.eventKey}
+                          </div>
                         </div>
-                        <div className="truncate font-mono text-ui-xs text-foreground-subtle">
-                          {entry.requestId ?? entry.eventKey}
+                        <div className="shrink-0 font-mono text-ui-xs text-foreground-subtle">
+                          {formatTimestamp(locale, entry.timestamp, entry.recordedAt)}
                         </div>
                       </div>
-                      <div className="shrink-0 font-mono text-ui-xs text-foreground-subtle">
-                        {formatTimestamp(locale, entry.timestamp, entry.recordedAt)}
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-ui-xs text-foreground-subtle">
+                        <span>{intl.formatMessage({ id: "developerTools.network.model" })}</span>
+                        <span className="min-w-0 truncate font-mono text-foreground">
+                          {entry.modelId ?? "-"}
+                        </span>
+                        <span>{intl.formatMessage({ id: "developerTools.network.provider" })}</span>
+                        <span className="min-w-0 truncate font-mono text-foreground">
+                          {entry.providerId ?? entry.providerKind ?? "-"}
+                        </span>
+                        <span>{intl.formatMessage({ id: "developerTools.network.source" })}</span>
+                        {entry.subagentSessionId ? (
+                          // detached 子代理条目：来源会话 id 放 title 便于复制排查。
+                          <span
+                            className="min-w-0 truncate font-mono text-foreground"
+                            title={entry.subagentSessionId}
+                          >
+                            {intl.formatMessage({ id: "developerTools.network.source.subagent" })}
+                            <span className="ml-1 text-foreground-subtle">
+                              {entry.subagentSessionId}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="min-w-0 truncate font-mono text-foreground">
+                            {intl.formatMessage({
+                              id:
+                                entry.querySource === "workflow_child"
+                                  ? "developerTools.network.source.workflow"
+                                  : "developerTools.network.source.main",
+                            })}
+                          </span>
+                        )}
+                        {entry.clientSigning ? (
+                          <>
+                            <span>
+                              {intl.formatMessage({ id: "developerTools.network.signing" })}
+                            </span>
+                            <span
+                              className="min-w-0 truncate font-mono"
+                              data-testid="developer-tools-signing-kind"
+                              data-signing-attention={
+                                isSigningAttentionKind(entry.clientSigning.kind) ? "true" : "false"
+                              }
+                            >
+                              {intl.formatMessage({
+                                id: signingKindLabelId(entry.clientSigning.kind),
+                              })}
+                            </span>
+                            {entry.clientSigning.reason ? (
+                              <>
+                                <span>
+                                  {intl.formatMessage({
+                                    id: "developerTools.network.signing.reason",
+                                  })}
+                                </span>
+                                <span className="min-w-0 truncate font-mono text-foreground">
+                                  {entry.clientSigning.reason}
+                                </span>
+                              </>
+                            ) : null}
+                            {entry.clientSigning.signedAttempt !== undefined ? (
+                              <>
+                                <span>
+                                  {intl.formatMessage({
+                                    id: "developerTools.network.signing.attempt",
+                                  })}
+                                </span>
+                                <span className="font-mono text-foreground">
+                                  {entry.clientSigning.signedAttempt}
+                                </span>
+                              </>
+                            ) : null}
+                            {entry.clientSigning.requestUrl ? (
+                              <>
+                                <span>
+                                  {intl.formatMessage({
+                                    id: "developerTools.network.signing.requestUrl",
+                                  })}
+                                </span>
+                                {/* 实际发送端点：签名链路直连 provider，即最终请求 URL。 */}
+                                <span
+                                  className="min-w-0 break-all font-mono text-foreground"
+                                  data-testid="developer-tools-signing-request-url"
+                                >
+                                  {entry.clientSigning.requestUrl}
+                                </span>
+                              </>
+                            ) : null}
+                          </>
+                        ) : null}
+                        <span>{intl.formatMessage({ id: "developerTools.network.attempt" })}</span>
+                        <span className="font-mono text-foreground">
+                          {entry.attempt !== undefined && entry.maxAttempts !== undefined
+                            ? `${entry.attempt}/${entry.maxAttempts === 0 ? "∞" : entry.maxAttempts}`
+                            : "-"}
+                        </span>
+                        <span>{intl.formatMessage({ id: "developerTools.network.http" })}</span>
+                        <span className="font-mono text-foreground">
+                          {formatNumber(locale, entry.statusCode)}
+                        </span>
+                        <span>{intl.formatMessage({ id: "developerTools.network.duration" })}</span>
+                        <span className="font-mono text-foreground">
+                          {formatMilliseconds(locale, entry.durationMs ?? entry.idleMs)}
+                        </span>
+                        <span>
+                          {intl.formatMessage({ id: "developerTools.network.retryDelay" })}
+                        </span>
+                        <span className="font-mono text-foreground">
+                          {formatMilliseconds(locale, entry.delayMs)}
+                        </span>
                       </div>
+                      {entry.baseURL ? (
+                        <div className="min-w-0 truncate font-mono text-ui-xs text-foreground-subtle">
+                          {entry.baseURL}
+                        </div>
+                      ) : null}
+                      {entry.message ? (
+                        <div className="break-words rounded-md bg-surface px-2 py-1.5 text-ui-xs text-foreground">
+                          {entry.message}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-ui-xs text-foreground-subtle">
-                      <span>{intl.formatMessage({ id: "developerTools.network.model" })}</span>
-                      <span className="min-w-0 truncate font-mono text-foreground">
-                        {entry.modelId ?? "-"}
-                      </span>
-                      <span>{intl.formatMessage({ id: "developerTools.network.provider" })}</span>
-                      <span className="min-w-0 truncate font-mono text-foreground">
-                        {entry.providerId ?? entry.providerKind ?? "-"}
-                      </span>
-                      <span>{intl.formatMessage({ id: "developerTools.network.attempt" })}</span>
-                      <span className="font-mono text-foreground">
-                        {entry.attempt !== undefined && entry.maxAttempts !== undefined
-                          ? `${entry.attempt}/${entry.maxAttempts === 0 ? "∞" : entry.maxAttempts}`
-                          : "-"}
-                      </span>
-                      <span>{intl.formatMessage({ id: "developerTools.network.http" })}</span>
-                      <span className="font-mono text-foreground">
-                        {formatNumber(locale, entry.statusCode)}
-                      </span>
-                      <span>{intl.formatMessage({ id: "developerTools.network.duration" })}</span>
-                      <span className="font-mono text-foreground">
-                        {formatMilliseconds(locale, entry.durationMs ?? entry.idleMs)}
-                      </span>
-                      <span>{intl.formatMessage({ id: "developerTools.network.retryDelay" })}</span>
-                      <span className="font-mono text-foreground">
-                        {formatMilliseconds(locale, entry.delayMs)}
-                      </span>
-                    </div>
-                    {entry.baseURL ? (
-                      <div className="min-w-0 truncate font-mono text-ui-xs text-foreground-subtle">
-                        {entry.baseURL}
-                      </div>
+                    {hasHeaders(entry.requestHeaders) ? (
+                      <HeaderDetails
+                        title={intl.formatMessage(
+                          { id: "developerTools.network.requestHeaders" },
+                          { count: formatNumber(locale, entry.requestHeaderCount) },
+                        )}
+                        headers={entry.requestHeaders}
+                        emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
+                      />
                     ) : null}
-                    {entry.message ? (
-                      <div className="break-words rounded-md bg-surface px-2 py-1.5 text-ui-xs text-foreground">
-                        {entry.message}
-                      </div>
+                    {hasHeaders(entry.responseHeaders) ? (
+                      <HeaderDetails
+                        title={intl.formatMessage(
+                          { id: "developerTools.network.responseHeaders" },
+                          { count: formatNumber(locale, entry.responseHeaderCount) },
+                        )}
+                        headers={entry.responseHeaders}
+                        emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
+                      />
+                    ) : null}
+                    {hasHeaders(entry.clientSigning?.headers) ? (
+                      <HeaderDetails
+                        title={intl.formatMessage(
+                          { id: "developerTools.network.signing.headers" },
+                          {
+                            count: formatNumber(
+                              locale,
+                              Object.keys(entry.clientSigning.headers).length,
+                            ),
+                          },
+                        )}
+                        headers={entry.clientSigning.headers}
+                        emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
+                      />
                     ) : null}
                   </div>
-                  <HeaderDetails
-                    title={intl.formatMessage(
-                      { id: "developerTools.network.requestHeaders" },
-                      { count: formatNumber(locale, entry.requestHeaderCount) },
-                    )}
-                    headers={entry.requestHeaders}
-                    emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
-                  />
-                  <HeaderDetails
-                    title={intl.formatMessage(
-                      { id: "developerTools.network.responseHeaders" },
-                      { count: formatNumber(locale, entry.responseHeaderCount) },
-                    )}
-                    headers={entry.responseHeaders}
-                    emptyLabel={intl.formatMessage({ id: "developerTools.network.noHeaders" })}
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

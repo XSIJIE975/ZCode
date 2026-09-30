@@ -2,6 +2,7 @@ import { requestPluginReferenceCatalog } from "#src/zcode-agent/pluginReferenceC
 import {
   localTtftFactsSchema,
   sessionDebugSnapshotSchema,
+  type ClientCaptchaConfig,
   type LocalTtftFacts,
 } from "@zcode/shared";
 /* oxlint-disable eslint(max-lines) -- ZCode Protocol transport、通知 wiring 和 app-facing session 方法必须共享同一个 client/emitter 上下文。 */
@@ -858,7 +859,7 @@ function createRuntimeUnavailableError(params: ZCodeAgentWorkspaceTarget): Error
   return error;
 }
 
-interface CreateZCodeAgentServiceOptions extends Omit<
+export interface CreateZCodeAgentServiceOptions extends Omit<
   ZCodeAgentProcessManagerOptions,
   "idleTimeoutMs"
 > {
@@ -866,6 +867,25 @@ interface CreateZCodeAgentServiceOptions extends Omit<
   mcpStatusIdleTimeoutMs?: number;
   accountProviderConfigSource?: ProviderSource<AccountProviderConfigSnapshot>;
   accountRequestAuthService?: IAccountRequestAuthService;
+  /**
+   * Start Plan 验证码门禁配置（clientConfigService 快照的 captcha 字段）。
+   * 缺省视为无配置：按发行版语义，配置缺失时需要验证而无法验证 → 该请求失败，
+   * 不静默放行。
+   */
+  resolveCaptchaConfig?: () => Promise<ClientCaptchaConfig | null>;
+  /**
+   * Start Plan 验证码执行端口（渲染端 AliyunCaptcha 组件的宿主桥）。
+   * 缺省 = 本端无人能完成人机验证；需要验证的请求按失败响应处理。
+   */
+  captchaVerificationPort?: {
+    requestCaptchaVerification(input: {
+      requestId: string;
+      sessionId: string;
+      providerId: string;
+      reason: "model-request" | "captcha-retry";
+      signal?: AbortSignal;
+    }): Promise<{ captchaVerifyParam: string; captchaRegion?: string }>;
+  };
   /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
   authorizeLocalMediaPreviewPath?: (path: string) => Promise<string>;
   modelSelectionReadinessSource?: ModelSelectionReadinessSource;
@@ -1198,6 +1218,8 @@ export function createZCodeAgentService(
   const accountConfigReceivedRevisionByClient = new WeakMap<ZCodeProtocolClient, string>();
   const sessionTraceIdBySessionKey = new Map<string, TraceId>();
   const accountRequestAuthService = options?.accountRequestAuthService;
+  const resolveCaptchaConfig = options?.resolveCaptchaConfig;
+  const captchaVerificationPort = options?.captchaVerificationPort;
   const accountProviderConfigSource = options?.accountProviderConfigSource;
   const modelSelectionReadinessSource = options?.modelSelectionReadinessSource;
   const sessionRuntimePreferencesAuthority = options?.sessionRuntimePreferencesAuthority ?? "local";
@@ -1265,7 +1287,9 @@ export function createZCodeAgentService(
       providerId: request.providerId,
       modelId: request.modelSelection.modelId,
       accountAccess: request.accountAccess,
-      reason: request.reason,
+      // captcha-retry 是 CLI 侧尝试语义；鉴权材料种类仍按 model-request 解析，
+      // 验证码头由验证码路径合并叠加，不进入账号凭据解析。
+      reason: request.reason === "captcha-retry" ? "model-request" : request.reason,
     });
   }
 
@@ -1306,6 +1330,129 @@ export function createZCodeAgentService(
         headersApplied: false,
         errorMessage: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      if (pendingProviderRuntimeHeaders.get(params.key) === params.pending) {
+        pendingProviderRuntimeHeaders.delete(params.key);
+      }
+    }
+  }
+
+  /** Start Plan 验证码门禁的两根请求头；验证参数单次有效，取值不进日志。 */
+  const CAPTCHA_VERIFY_PARAM_HEADER = "X-Aliyun-Captcha-Verify-Param";
+  const CAPTCHA_VERIFY_REGION_HEADER = "X-Aliyun-Captcha-Verify-Region";
+  const CAPTCHA_FAILED_MESSAGE = "Captcha verification failed. Please try again.";
+
+  /** Start Plan（zhipu-account + start-plan）才进入验证码门禁；与发行版 claim 条件一致。 */
+  function isStartPlanCaptchaGatedAccess(
+    accountAccess: ZCodeProviderRuntimeHeadersRequestParams["accountAccess"],
+  ): boolean {
+    return (
+      accountAccess?.type === "zhipu-account" && accountAccess.mode === "start-plan"
+    );
+  }
+
+  /** 发行版 p3 完整性判定：enabled=false 在 skip 分支处理；缺 region/prefix/sceneId 视为不可用。 */
+  function isCaptchaConfigIncomplete(config: ClientCaptchaConfig): boolean {
+    return !config.region || !config.prefix || !config.sceneId;
+  }
+
+  /**
+   * Start Plan 账号请求的鉴权应答：先按服务端配置决定是否需要人机验证。
+   * skip（enabled=false / skip_model_request=true）→ 与其它账号一致只回鉴权材料；
+   * 需要验证 → 经 captchaVerificationPort 向渲染端索取验证参数，合并进鉴权头后应答；
+   * 配置缺失/不完整或端口缺失 → 失败应答（CLI 侧按不可重试错误收口），不静默放行。
+   */
+  async function respondStartPlanRequestAuth(params: {
+    key: string;
+    pending: PendingProviderRuntimeHeadersRequest;
+  }): Promise<void> {
+    const request = params.pending.request;
+    const respondFailure = async (message: string): Promise<void> => {
+      await params.pending.client.respond(params.pending.protocolRequestId, {
+        headersApplied: false,
+        errorMessage: message,
+      });
+    };
+    params.pending.responding = true;
+    try {
+      let captchaConfig: ClientCaptchaConfig | null = null;
+      try {
+        captchaConfig = (await resolveCaptchaConfig?.()) ?? null;
+      } catch (error) {
+        logger.warn(undefined, "Start Plan 验证码配置读取失败", {
+          providerId: request.providerId,
+          requestId: request.requestId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      const skipCaptcha =
+        captchaConfig?.enabled === false || captchaConfig?.skipModelRequest === true;
+      const requestAuth = await resolveAccountRequestAuth(request);
+      if (pendingProviderRuntimeHeaders.get(params.key) !== params.pending) return;
+      if (!requestAuth) {
+        throw new Error("Account request auth resolver returned no material");
+      }
+      if (skipCaptcha) {
+        await params.pending.client.respond(params.pending.protocolRequestId, {
+          headersApplied: true,
+          requestAuth,
+        });
+        return;
+      }
+      if (!captchaConfig || isCaptchaConfigIncomplete(captchaConfig)) {
+        logger.warn(undefined, "Start Plan 验证码配置缺失或不完整，无法完成人机验证", {
+          providerId: request.providerId,
+          requestId: request.requestId,
+        });
+        await respondFailure(CAPTCHA_FAILED_MESSAGE);
+        return;
+      }
+      if (!captchaVerificationPort) {
+        logger.warn(undefined, "Start Plan 需要人机验证但宿主未接入验证码端口", {
+          providerId: request.providerId,
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+        });
+        await respondFailure(CAPTCHA_FAILED_MESSAGE);
+        return;
+      }
+      const verification = await captchaVerificationPort.requestCaptchaVerification({
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        providerId: request.providerId,
+        reason: request.reason,
+      });
+      if (pendingProviderRuntimeHeaders.get(params.key) !== params.pending) return;
+      const captchaRegion = verification.captchaRegion?.trim();
+      await params.pending.client.respond(params.pending.protocolRequestId, {
+        headersApplied: true,
+        requestAuth: {
+          ...requestAuth,
+          headers: {
+            ...requestAuth.headers,
+            // 验证参数单次有效：本次刷新提供的新参数覆盖旧值（CLI 侧还会剥离历史残留）。
+            [CAPTCHA_VERIFY_PARAM_HEADER]: verification.captchaVerifyParam,
+            ...(captchaRegion ? { [CAPTCHA_VERIFY_REGION_HEADER]: captchaRegion } : {}),
+          },
+        },
+      });
+      logger.info(undefined, "ZCode provider runtime headers 已应用（含验证码材料）", {
+        modelId: request.modelSelection.modelId,
+        providerId: request.providerId,
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        reason: request.reason,
+        workspaceKey: resolveWorkspaceKey(request.workspace),
+      });
+    } catch (error) {
+      if (pendingProviderRuntimeHeaders.get(params.key) !== params.pending) return;
+      logger.warn(undefined, "Start Plan 验证码人机验证未完成", {
+        providerId: request.providerId,
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await respondFailure(CAPTCHA_FAILED_MESSAGE);
     } finally {
       if (pendingProviderRuntimeHeaders.get(params.key) === params.pending) {
         pendingProviderRuntimeHeaders.delete(params.key);
@@ -2274,8 +2421,17 @@ export function createZCodeAgentService(
           });
           const accountAccess = parsed.data.accountAccess;
           if (accountRequestAuthService && accountAccess) {
-            // Account API Key / Team Runtime Key / Start Plan JWT 都不需要 Renderer 交互。
+            if (isStartPlanCaptchaGatedAccess(accountAccess)) {
+              // Start Plan 走验证码门禁：skip 判定、渲染端验证、失败语义都在此分支收口。
+              void respondStartPlanRequestAuth({
+                key: pendingKey,
+                pending,
+              });
+              return;
+            }
+            // Account API Key / Team Runtime Key 的 JWT/API Key 材料不需要 Renderer 交互，
             // Host 按 Model 固定的 Account Access 自动应答，避免后台任务和无 pane 会话依赖 UI 订阅者。
+            // Start Plan 在上方分支走验证码门禁（skip=true 时同样自动应答）。
             void respondAccountRequestAuthWithoutInteraction({
               key: pendingKey,
               pending,
@@ -3663,7 +3819,8 @@ export function createZCodeAgentService(
     },
 
     async getTaskTokenUsage(params: ZCodeAgentTaskTokenUsageParams) {
-      const client = await getReadOnlyClient(params);
+      // 被动观察：runtime 不在场（历史会话/已回收子代理）就失败返回空，不拉起新进程。
+      const client = await getReadOnlyClient(params, params.runtimePolicy ?? "existing-only");
       // session/usage → v4/conversation/usage（同上；task 是 UI 投影概念，
       // v4 名字空间落位 conversation）。
       return client.request(

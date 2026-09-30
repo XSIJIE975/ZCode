@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button.js";
 import { PlatformProvider } from "@/hooks/usePlatform.js";
 import { ServiceProvider } from "@/hooks/useServices.js";
 import { useDynamicWorkflowAvailabilityLoader } from "@/hooks/useDynamicWorkflowAvailability.js";
+import { StartPlanCaptchaHost } from "@/captcha/StartPlanCaptchaHost.js";
 import { DirectoryBrowser } from "@/DirectoryBrowser.js";
 import { useTabPersistence } from "@/hooks/useTabPersistence.js";
 import { useTokenRefresh } from "@/hooks/useTokenRefresh.js";
@@ -129,6 +130,8 @@ export function Root(props: RootProps) {
                   >
                     <CodingPlanUpgradeDialogProvider>
                       <RootInner {...props} />
+                      {/* Start Plan 验证码宿主：常驻隐藏 DOM + 平台验证码请求接线（desktop 专属能力）。 */}
+                      <StartPlanCaptchaHost />
                     </CodingPlanUpgradeDialogProvider>
                   </AssistantCodeCommentFeatureProvider>
                 </DiffsWorkerPoolProvider>

@@ -32,7 +32,7 @@ export interface ModelInvocationContext {
   refreshRuntimeHeadersBeforeAttempt?: (input: {
     accountAccess?: ZCodeProviderAccountAccess;
     attempt: number;
-    reason?: "model-request";
+    reason?: ModelRequestRefreshReason;
     abortSignal?: AbortSignal;
     providerId: string;
     modelId: string;
@@ -42,6 +42,15 @@ export interface ModelInvocationContext {
     requestAuth?: ModelRequestAuth;
   }>;
 }
+
+/**
+ * 单次物理模型请求 attempt 的 runtime-headers 刷新原因。
+ *
+ * `model-request`：常规发送前刷新；`captcha-retry`：网关 3007（captcha verify failed）
+ * 后占用唯一额外重试机会时的刷新。刷新原因只是尝试语义，鉴权材料仍按 model-request
+ * 种类解析，验证码头由 Host 侧合并叠加。
+ */
+export type ModelRequestRefreshReason = "model-request" | "captcha-retry";
 
 /** Adapter 为单个物理请求 attempt 使用的动态鉴权材料。 */
 export interface ModelRequestAuth {

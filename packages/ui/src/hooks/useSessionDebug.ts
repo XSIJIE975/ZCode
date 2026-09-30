@@ -3,18 +3,26 @@ import type { SessionDebugSnapshot } from "@zcode/shared";
 import { useServices } from "@/hooks/useServices.js";
 
 const REFRESH_INTERVAL_MS = 1000;
-const EMPTY_DEBUG = { rounds: [], networkEntries: [], cache: null } as const;
+const EMPTY_DEBUG = {
+  rounds: [],
+  networkEntries: [],
+  cache: null,
+  latestClientSigning: undefined,
+} as const;
 
 export function useSessionDebug({
   workspacePath,
   workspaceIdentity,
   taskId,
   enabled = true,
+  refreshIntervalMs = REFRESH_INTERVAL_MS,
 }: {
   workspacePath: string;
   workspaceIdentity?: string;
   taskId: string | null;
   enabled?: boolean;
+  /** 常驻组件（信息条）可传更长的空闲间隔，避免无谓的 1Hz 轮询。 */
+  refreshIntervalMs?: number;
 }) {
   const { zcodeAgentService } = useServices();
   const scopeKey = JSON.stringify([workspaceIdentity?.trim() || workspacePath, taskId]);
@@ -49,7 +57,7 @@ export function useSessionDebug({
           }));
       } finally {
         // 调试查询按完成节拍刷新，不重叠请求；切任务后的旧结果不能覆盖新任务。
-        if (!disposed) timer = setTimeout(() => void refresh(), REFRESH_INTERVAL_MS);
+        if (!disposed) timer = setTimeout(() => void refresh(), refreshIntervalMs);
       }
     };
     void refresh();
@@ -57,7 +65,15 @@ export function useSessionDebug({
       disposed = true;
       clearTimeout(timer);
     };
-  }, [enabled, scopeKey, taskId, workspaceIdentity, workspacePath, zcodeAgentService]);
+  }, [
+    enabled,
+    refreshIntervalMs,
+    scopeKey,
+    taskId,
+    workspaceIdentity,
+    workspacePath,
+    zcodeAgentService,
+  ]);
   const current = result?.key === scopeKey && result.service === zcodeAgentService ? result : null;
   return { ...(current?.data ?? EMPTY_DEBUG), error: current?.error ?? false };
 }

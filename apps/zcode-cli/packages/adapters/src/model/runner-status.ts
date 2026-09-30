@@ -383,5 +383,15 @@ function logStatusEvent(event: ModelNetworkStatusEvent, logger?: Logger): void {
         status: "completed",
       });
       return;
+
+    case "model_client_signing":
+      logger?.debug("Model client signing observed", {
+        ...modelStatusLogContext(event),
+        clientSigning: event.clientSigning,
+        event: `model.client_signing.${event.clientSigning.kind}`,
+        status: "completed",
+      });
+      return;
   }
 }
+

@@ -793,6 +793,7 @@ export function TaskListItemContextMenuContent({
   onStartRenameTask,
   onArchiveTask,
   onMarkTaskAsUnread,
+  onOpenDeveloperTools,
   disableTaskActions = false,
   disabledReason,
 }: {
@@ -805,6 +806,7 @@ export function TaskListItemContextMenuContent({
   onStartRenameTask: (taskId: string, currentTitle: string) => void;
   onArchiveTask: (taskId: string) => void;
   onMarkTaskAsUnread: (taskId: string) => void;
+  onOpenDeveloperTools?: (taskId: string) => void;
   disableTaskActions?: boolean;
   disabledReason?: string;
 }) {
@@ -954,6 +956,15 @@ export function TaskListItemContextMenuContent({
           title: taskTitle,
         });
       }}
+      onOpenDeveloperTools={
+        onOpenDeveloperTools
+          ? () => {
+              // 先选中该会话再打开面板：开发者工具绑定当前会话，非选中行的
+              // 右键入口必须保证面板展示的是该行任务的数据。
+              onOpenDeveloperTools(task.taskId);
+            }
+          : undefined
+      }
     />
   );
 }

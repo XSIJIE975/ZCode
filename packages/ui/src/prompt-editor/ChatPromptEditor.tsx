@@ -74,6 +74,7 @@ export function ChatPromptEditor({
   promptHistory,
   className,
   shellClassName,
+  statsBar,
   compactPlaceholder = false,
   onChange,
   onSubmit,
@@ -131,6 +132,11 @@ export function ChatPromptEditor({
   promptHistory?: readonly string[];
   className?: string;
   shellClassName?: string;
+  /**
+   * 会话统计行（轮/步/tps/累计 token/签名状态）：渲染在输入卡片内部顶栏，
+   * 与编辑器同一张 rounded-2xl 卡（bg-input 不透明、圆角/边框由 shell 兜底）。
+   */
+  statsBar?: ReactNode;
   compactPlaceholder?: boolean;
   onChange?: (value: string) => void;
   // 适配：返回 false 表示业务层拒绝/延迟本次提交，Lexical 不自行 reset（草稿保留）。
@@ -350,6 +356,13 @@ export function ChatPromptEditor({
           shellClassName,
         )}
       >
+        {statsBar ? (
+          // 顶栏用负边距抵消 shell 的 p-3，分隔线通到卡片左右边缘；
+          // 卡片 overflow-hidden 会把行的外角裁进 rounded-2xl。
+          <div className="-mx-3 -mt-3 mb-0 flex min-w-0 items-center justify-end border-b border-input-border px-3 py-1.5">
+            {statsBar}
+          </div>
+        ) : null}
         {draggingOverlayHint ? (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-accent/55 backdrop-blur-sm">
             <div className="flex items-center gap-2 rounded-full border border-border bg-accent px-4 py-2 text-ui-base text-foreground shadow-sm">

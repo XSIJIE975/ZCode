@@ -379,6 +379,12 @@ interface ConversationComposerProps {
    * 仅草稿态由宿主下发；会话建立后为空。
    */
   contextHeader?: ReactNode;
+  /**
+   * 会话统计条内容（轮/步/tps/累计 token/签名状态）：透传给 ChatPromptEditor，
+   * 渲染在输入卡片（rounded-2xl bg-input）内部顶栏，与输入框同卡同圆角。
+   * 由 SessionPane 传入；空则不渲染。
+   */
+  statsBar?: ReactNode;
   /** 居中草稿布局（旧 shouldUseCenteredDraftChatLayout）：收窄 max-w-2xl、去 sticky。 */
   centered?: boolean;
   /**
@@ -494,6 +500,7 @@ function ConversationComposerImpl({
   createSubmissionFromComposer,
   telemetryDraftConfig,
   contextHeader,
+  statsBar,
   centered = false,
   blockingRequestId = null,
   disabled = false,
@@ -2247,6 +2254,7 @@ function ConversationComposerImpl({
           </div>
         ) : null}
         <ChatPromptEditor
+          statsBar={statsBar}
           workspacePath={workspacePath}
           workspaceIdentity={workspaceIdentity}
           taskId={sessionId}

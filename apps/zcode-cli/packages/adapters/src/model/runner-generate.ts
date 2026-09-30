@@ -31,6 +31,7 @@ import {
   logGenerateTextDiagnostics,
 } from "./runner-diagnostics.js";
 import { sanitizeModelNetworkHeaders } from "./runner-network-headers.js";
+import { CaptchaRequestRetry } from "./captcha-request-retry.js";
 import { canRetryEmptyCompletion, scheduleEmptyCompletionRetry } from "./empty-completion-retry.js";
 import {
   calculateRetryDelay,
@@ -44,6 +45,7 @@ import {
   createStatusContext,
   publishModelStatus,
 } from "./runner-status.js";
+import { publishClientSigningObservations } from "./runner-client-signing-status.js";
 import type { EnvRecord } from "./model-execution.js";
 import type { ResolvedAiSdkModelRetryOptions } from "./retry-policy.js";
 import type {
@@ -91,18 +93,20 @@ export async function runGenerateText(input: {
   let requestMessages = input.request.messages;
   let signatureRepairAttempted = false;
   let emptyCompletionRetryCount = 0;
+  // Start Plan 验证码重试机会：单请求至多一次额外物理尝试，不占普通 retry 预算。
+  const captchaRetry = new CaptchaRequestRetry(input.request, input.resolved);
 
   for (
     let attempt = 1;
     retryAttemptLoopContinues(
       retryBudget,
       attempt,
-      input.retry.maxAttempts + Number(signatureRepairAttempted),
+      input.retry.maxAttempts + Number(signatureRepairAttempted) + captchaRetry.extraAttempts,
     );
     attempt += 1
   ) {
     const retryBudgetAttempt =
-      attempt - Number(signatureRepairAttempted);
+      attempt - Number(signatureRepairAttempted) - captchaRetry.extraAttempts;
     const attemptRequest = { ...input.request, messages: requestMessages };
     const startedAt = Date.now();
     let resolved = input.resolved;
@@ -110,7 +114,7 @@ export async function runGenerateText(input: {
       {
         ...baseStatusContext,
         maxAttempts: statusMaxAttempts(
-          Number(signatureRepairAttempted),
+          Number(signatureRepairAttempted) + captchaRetry.extraAttempts,
         ),
       },
       attempt,
@@ -160,6 +164,7 @@ export async function runGenerateText(input: {
     try {
       resolved = await resolveModelForAttempt({
         attempt,
+        reason: captchaRetry.takeReason(),
         request: attemptRequest,
         resolveModel: input.resolveModel,
       });
@@ -272,6 +277,15 @@ export async function runGenerateText(input: {
           statusContext,
           statusSink: input.statusSink,
         });
+        // 本 attempt 不走 completed/failed 收口，观测必须在此取出，否则滞留 store。
+        await publishClientSigningObservations({
+          attempt,
+          logger: input.logger,
+          request: attemptRequest,
+          resolved,
+          statusContext,
+          statusSink: input.statusSink,
+        });
         continue;
       }
       const completedAt = Date.now();
@@ -317,6 +331,15 @@ export async function runGenerateText(input: {
         },
         statusPublishOptions(input, admission),
       );
+      // 请求收口后补发签名层观测（signed_sent / unsigned_sent 等），与本次请求按 requestId 关联。
+      await publishClientSigningObservations({
+        attempt,
+        logger: input.logger,
+        request: attemptRequest,
+        resolved,
+        statusContext,
+        statusSink: input.statusSink,
+      });
 
       return {
         text,
@@ -387,7 +410,17 @@ export async function runGenerateText(input: {
               retryBudget,
               inspectProviderFailure(error).providerErrorCode,
             );
-      const canRetry = retryWithRepairedHistory || canRetryWithFailurePolicy;
+      // Start Plan 3007：领取唯一一次验证码重试机会；veto=请求构造完成前失败（如头部刷新失败）。
+      // claim 成功独立于常规失败策略：即使预算耗尽也保证这次额外尝试（发行版同语义）。
+      const captchaRetryClaimed = captchaRetry.claim(error, options === undefined);
+      if (captchaRetryClaimed) {
+        statusContext = {
+          ...statusContext,
+          maxAttempts: statusMaxAttempts(Number(signatureRepairAttempted) + captchaRetry.extraAttempts),
+        };
+      }
+      const canRetry =
+        captchaRetryClaimed || retryWithRepairedHistory || canRetryWithFailurePolicy;
 
       if (options) {
         recordGenerateTextDebug({
@@ -427,6 +460,15 @@ export async function runGenerateText(input: {
           failureError: unwrapRetryError(error),
         },
       );
+      // 失败请求同样收口签名观测：verify_rejected / handshake_failed 等只在这里可见。
+      await publishClientSigningObservations({
+        attempt,
+        logger: input.logger,
+        request: attemptRequest,
+        resolved,
+        statusContext,
+        statusSink: input.statusSink,
+      });
 
       if (!canRetry) {
         logRetryDelayDecision({
@@ -440,6 +482,25 @@ export async function runGenerateText(input: {
         throw toAdapterError(error, failure, statusContext, attempt, {
           errorPhase: requestInvocationCompleted ? "response" : "prepare",
         });
+      }
+
+      if (captchaRetryClaimed) {
+        // 验证码被拒：立即重试一次（不退避）。下一次 attempt 的刷新原因已由 takeReason()
+        // 标记为 captcha-retry，Host/渲染端会现跑一次新验证并回传新的验证码头。
+        await publishRetryScheduledStatus(
+          input,
+          statusContext,
+          attempt,
+          0,
+          {
+            ...failure,
+            retryReason: ModelRetryReason.AuthRefresh,
+          },
+          requestHeaders,
+          responseHeaders,
+          admission,
+        );
+        continue;
       }
 
       if (retryWithRepairedHistory) {

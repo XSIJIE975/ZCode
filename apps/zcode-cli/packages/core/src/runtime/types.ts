@@ -399,7 +399,7 @@ export interface ProviderRuntimeHeadersPort {
     abortSignal?: AbortSignal;
     modelId: string;
     providerId: string;
-    reason: "model-request";
+    reason: "model-request" | "captcha-retry";
     sessionId: SessionId;
     traceContext: TraceContext;
     turnId?: TurnId;

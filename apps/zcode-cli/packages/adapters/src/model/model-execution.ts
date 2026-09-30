@@ -27,10 +27,29 @@ import { createNetworkProxyFetch } from "../network/proxy-fetch.js";
 import { createOfficialCodingPlanGatewayFetch } from "./official-coding-plan-gateway.js";
 import { normalizeModelTlsFailure } from "./failure-tls.js";
 import { mergeModelRequestHeaders } from "./model-request-headers.js";
+import {
+  AiSdkClientRequestSigningState,
+  ClientRequestSigningManager,
+  ClientSigningObservationStore,
+  CodingPlanSignatureFeatureGate,
+  DEFAULT_CLIENT_SIGNING_VERSION,
+  type ClientSigningFetch,
+  type ClientSigningObservation,
+  type ClientSigningObservationKind,
+  type CodingPlanSignatureFeatureGateResult,
+  clientRequestSigningFeatureScopeKey,
+  readClientSigningRequestId,
+} from "./client-request-signing.js";
 
 export type AiSdkProviderKind = "openai" | "anthropic" | "openai-compatible";
 
 export type EnvRecord = Record<string, string | undefined>;
+
+/** 官方 Coding Plan 签名运行时配置：feature gate 地址与查询头（bootstrap 产出）。 */
+export interface CodingPlanSignatureRuntimeConfig {
+  configUrl: string | (() => string);
+  headers: Record<string, string> | (() => Record<string, string>);
+}
 
 interface AiSdkProviderConfig {
   access: RegistryProviderConfig["access"];
@@ -45,11 +64,15 @@ interface AiSdkProviderConfig {
 export interface AiSdkModelExecutionConfig {
   /** 执行环境提供的默认来源信息，不属于 Provider 持久化配置。 */
   defaultHeaders?: Readonly<Record<string, string>>;
+  /** 官方 Coding Plan 客户端签名（额度折算的服务端识别前提）；缺省不签名。 */
+  codingPlanSignature?: CodingPlanSignatureRuntimeConfig;
   env?: EnvRecord;
   network?: AiSdkNetworkConfig;
 }
 
 export interface AiSdkModelExecutionOptions {
+  /** 跨 Execution 复用的签名状态（gate / 私钥缓存）；缺省各 Execution 独立缓存。 */
+  clientRequestSigningState?: AiSdkClientRequestSigningState;
   logger?: Logger;
   transport?: ProviderFetch;
 }
@@ -69,6 +92,8 @@ export interface AiSdkResolvedModel {
   providerKind: AiSdkProviderKind;
   providerOptions?: Record<string, unknown>;
   rawRequestBodyCapture?: RawRequestBodyCapture;
+  /** 本 Execution 的客户端签名观测记录（按请求 x-request-id 归因）。 */
+  clientSigningObservations?: ClientSigningObservationStore;
 }
 
 export interface AiSdkBoundModelResolution {
@@ -155,16 +180,152 @@ export class AiSdkModelExecution {
   private readonly env: EnvRecord;
   private readonly defaultHeaders: Record<string, string>;
   private readonly network: AiSdkNetworkConfig;
+  private readonly codingPlanSignature?: CodingPlanSignatureRuntimeConfig;
   private readonly logger?: Logger;
   private readonly baseTransport?: ProviderFetch;
+  private readonly clientRequestSigningState?: AiSdkClientRequestSigningState;
   private readonly providerTransports = new Map<string, ProviderFetch>();
+  private readonly providerDirectTransports = new Map<string, ProviderFetch>();
+  private readonly signingManager: ClientRequestSigningManager;
+  private readonly signingFeatureGates = new Map<string, CodingPlanSignatureFeatureGate>();
+  private readonly clientSigningObservations = new ClientSigningObservationStore();
+  private readonly accessModeUnsignedLoggedProviders = new Set<string>();
 
   constructor(config: AiSdkModelExecutionConfig = {}, options: AiSdkModelExecutionOptions = {}) {
     this.env = config.env ?? process.env;
     this.defaultHeaders = { ...config.defaultHeaders };
     this.network = { ...config.network };
+    this.codingPlanSignature = config.codingPlanSignature;
     this.logger = options.logger;
     this.baseTransport = options.transport;
+    this.clientRequestSigningState = options.clientRequestSigningState;
+    this.signingManager = new ClientRequestSigningManager({
+      isEnabled: (apiKey, signal) =>
+        this.resolveSigningFeatureGate(apiKey)?.isEnabled(signal) ?? Promise.resolve(false),
+      keyCache: this.clientRequestSigningState?.keyCache,
+      observer: (input) => this.observeClientSigning(input),
+    });
+  }
+
+  /**
+   * 客户端签名观测：请求级记录进 store（按 x-request-id 归因），进程级打日志。
+   * 事件名与发行版对齐（model.client_signing.*），便于沿用同一套日志检索口径。
+   */
+  private observeClientSigning(input: {
+    observation: ClientSigningObservation;
+    providerId: string;
+    requestId?: string;
+    sessionId?: string;
+  }): void {
+    if (input.requestId) {
+      this.clientSigningObservations.record(input.requestId, input.observation);
+    }
+    const { kind, ...fields } = input.observation;
+    const logContext = {
+      ...fields,
+      event: `model.client_signing.${kind}`,
+      providerId: input.providerId,
+      requestId: input.requestId,
+      sessionId: input.sessionId,
+    };
+    switch (kind as ClientSigningObservationKind) {
+      case "signed_sent":
+        this.logger?.debug("Client request signing applied", logContext);
+        return;
+      case "unsigned_sent":
+        this.logger?.info("Client request sent without signature", logContext);
+        return;
+      case "handshake_failed":
+        this.logger?.warn("Client signing handshake failed", logContext);
+        return;
+      case "verify_rejected":
+        this.logger?.warn("Client signing rejected by gateway", logContext);
+        return;
+      case "bypass_entered":
+        this.logger?.warn("Client signing entered BYPASS for current signer generation", logContext);
+        return;
+      case "request_failed_closed":
+        this.logger?.warn("Client signing failed closed", logContext);
+        return;
+    }
+  }
+
+  private logFeatureGateResult(result: CodingPlanSignatureFeatureGateResult): void {
+    const logContext = {
+      cacheable: result.cacheable,
+      enabled: result.enabled,
+      event: "model.client_signing.feature_gate",
+      failure: result.failure,
+      httpStatus: result.httpStatus,
+    };
+    if (result.failure) {
+      this.logger?.warn("Client signing feature gate unavailable", logContext);
+      return;
+    }
+    this.logger?.info(
+      result.enabled
+        ? "Client signing feature gate enabled"
+        : "Client signing feature gate disabled",
+      logContext,
+    );
+  }
+
+  private resolveSigningFeatureGate(apiKey: string): CodingPlanSignatureFeatureGate | undefined {
+    if (!this.codingPlanSignature) return undefined;
+    if (!this.clientRequestSigningState) {
+      const cached = this.signingFeatureGates.get(apiKey);
+      if (cached) return cached;
+    }
+    const gateTransport = createNetworkProxyFetch({
+      caCertFile: this.network.caCertFile,
+      env: this.env,
+      fetch: this.baseTransport,
+      httpProxy: this.network.httpProxy,
+      noProxy: this.network.noProxy,
+    });
+    const gate = new CodingPlanSignatureFeatureGate({
+      headers: { ...resolveCodingPlanSignatureHeaders(this.codingPlanSignature), "x-api-key": apiKey },
+      onResult: (result) => this.logFeatureGateResult(result),
+      transport: gateTransport,
+      url: this.codingPlanSignature.configUrl,
+    });
+    const resolved = this.clientRequestSigningState?.resolveFeatureGate({
+      apiKey,
+      create: () => gate,
+      scopeKey: clientRequestSigningFeatureScopeKey({
+        configUrl: this.codingPlanSignature.configUrl,
+        headers: this.codingPlanSignature.headers,
+        network: this.network,
+      }),
+    }) ?? gate;
+    if (!this.clientRequestSigningState) {
+      this.signingFeatureGates.set(apiKey, resolved);
+    }
+    return resolved;
+  }
+
+  /**
+   * access 层明确不需要签名（start-plan / off-peak）但端点仍是官方域时，
+   * 保持未签名发送并留一条可观测记录；与签名路径共用同一套 unsigned_sent 语义。
+   */
+  private createAccessModeUnsignedFetch(providerId: string, transport: ProviderFetch): ProviderFetch {
+    return (input, init) => {
+      const requestId = readClientSigningRequestId(input, init);
+      const observation: ClientSigningObservation = { kind: "unsigned_sent", reason: "access_mode" };
+      if (requestId) {
+        this.clientSigningObservations.record(requestId, observation);
+      }
+      if (!this.accessModeUnsignedLoggedProviders.has(providerId)) {
+        this.accessModeUnsignedLoggedProviders.add(providerId);
+        this.logger?.info("Client request signing skipped by provider access mode", {
+          event: "model.client_signing.unsigned_sent",
+          providerId,
+          reason: "access_mode",
+          requestId,
+        });
+      }
+      return transport(input, init);
+    };
   }
 
   /**
@@ -249,6 +410,7 @@ export class AiSdkModelExecution {
       providerKind: providerConfig.kind,
       providerOptions: providerConfig.providerOptions,
       rawRequestBodyCapture,
+      clientSigningObservations: this.clientSigningObservations,
     };
   }
 
@@ -263,8 +425,25 @@ export class AiSdkModelExecution {
     const apiKey = this.resolveApiKey(providerConfig);
     const headers = providerConfig.headers;
     const providerTransport = this.resolveProviderTransport(providerId);
+    // 官方 Coding Plan 链路要求客户端签名（服务端据此应用额度折算计费）；
+    // 官方域上明确免签名的 access（start-plan / off-peak）保持未签名并留观测；
+    // 其余 provider 与既有行为一致，完全不进入签名层。
+    // 进入签名层的 provider 必须直连 provider 端点：发行版 3.14.3 的签名请求
+    // 直接发往注册表下发的 baseURL（其动态 proxyEndpoint 映射当前为空），
+    // 签名头由 bigmodel/z.ai 端点侧校验计费；若再经开源版 ultra 网关改写，
+    // 计费路径与发行版不一致，额度折算不保证生效。
+    const businessFetch: ProviderFetch = requiresClientRequestSigning(providerConfig)
+      ? this.resolveClientSigningFetch(
+          providerId,
+          providerConfig,
+          apiKey,
+          this.resolveProviderDirectTransport(providerId),
+        )
+      : isOfficialProviderHost(providerConfig.baseURL)
+        ? this.createAccessModeUnsignedFetch(providerId, providerTransport)
+        : providerTransport;
     const fetch = createProviderBusinessErrorFetch({
-      fetch: providerTransport,
+      fetch: businessFetch,
       providerId,
       providerKind: providerConfig.kind,
     });
@@ -338,6 +517,62 @@ export class AiSdkModelExecution {
     this.providerTransports.set(providerId, transport);
     return transport;
   }
+
+  /**
+   * 签名链路专用直连出口：只做用户 HTTP 代理，不做 ultra 网关端点改写。
+   * 发行版的签名请求（含 gate 关闭后的未签名降级）都直连注册表 baseURL；
+   * ultra 网关是开源版免签名链路的替代计费路径，二者不能叠加以免偏离
+   * 发行版计费路径。实例按 providerId 缓存，保证 signer 复用判断稳定。
+   */
+  private resolveProviderDirectTransport(providerId: string): ProviderFetch {
+    const current = this.providerDirectTransports.get(providerId);
+    if (current) {
+      return current;
+    }
+    const transport = createProviderProxyFetch({
+      caCertFile: this.network.caCertFile,
+      env: this.env,
+      fetch: this.baseTransport,
+      httpProxy: this.network.httpProxy,
+      noProxy: this.network.noProxy,
+    });
+    this.providerDirectTransports.set(providerId, transport);
+    return transport;
+  }
+
+  private resolveClientSigningFetch(
+    providerId: string,
+    providerConfig: AiSdkProviderConfig,
+    apiKey: string | undefined,
+    transport: ProviderFetch,
+  ): ProviderFetch {
+    const baseURL = providerConfig.baseURL;
+    if (!baseURL) return transport;
+    // 客户端版本优先取归一化的默认来源头；缺失时退回协议占位版本。
+    try {
+      return this.signingManager.createFetch(
+        {
+          apiKey: apiKey ?? "",
+          baseURL,
+          clientVersion:
+            readHeaderValue(providerConfig.headers, "X-ZCode-App-Version") ??
+            DEFAULT_CLIENT_SIGNING_VERSION,
+          providerId,
+        },
+        transport as ClientSigningFetch,
+      ) as ProviderFetch;
+    } catch (error) {
+      // 非 https 的官方域 baseURL 会让 signer 在构造期抛 invalid-config 并击穿
+      // 模型解析；这里退回直连未签名，保持请求可用（发行版同样会抛，开源侧选择不回归）。
+      this.logger?.warn("Client request signer unavailable, sending direct", {
+        baseURL,
+        event: "model.client_signing.signer_unavailable",
+        errorMessage: error instanceof Error ? error.message : String(error),
+        providerId,
+      });
+      return transport;
+    }
+  }
 }
 
 interface AiSdkModelSnapshot {
@@ -371,17 +606,106 @@ function toAiSdkProviderConfig(
   throw new Error(`Unsupported Provider API type: ${String(config.api.type)}`);
 }
 
+/** 官方家族根域：命中即视为官方端点（Coding Plan / Start Plan / API Key 均可能）。 */
+const OFFICIAL_PROVIDER_ROOT_DOMAINS = ["z.ai", "bigmodel.cn"] as const;
+/** 除官方根域外，明确要求客户端签名的平台主机。 */
+const CLIENT_REQUEST_SIGNING_HOSTS = new Set(["api.chatglm.site", "zcode.chatglm.site"]);
+
+export function isOfficialProviderHost(baseURL: string | undefined): boolean {
+  return resolveOfficialRootDomain(baseURL) !== undefined;
+}
+
+function resolveOfficialRootDomain(baseURL: string | undefined): string | undefined {
+  const trimmed = baseURL?.trim();
+  if (!trimmed) return undefined;
+  let hostname: string;
+  try {
+    hostname = new URL(trimmed).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+  for (const rootDomain of OFFICIAL_PROVIDER_ROOT_DOMAINS) {
+    if (hostname === rootDomain || hostname.endsWith(`.${rootDomain}`)) {
+      return rootDomain;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 是否为该 provider 包装客户端请求签名：
+ * - Coding Plan API Key；
+ * - 账号型个人 / 团队 Coding Plan；
+ * - 端点在官方域或平台签名主机上。
+ * start-plan / off-peak 明确排除（服务端不对其验签计费）。
+ */
+export function requiresClientRequestSigning(
+  providerConfig: Pick<AiSdkProviderConfig, "access" | "baseURL">,
+): boolean {
+  const access = providerConfig.access;
+  if (
+    access.type === "zhipu-account" &&
+    (access.mode === "start-plan" || access.mode === "off-peak")
+  ) {
+    return false;
+  }
+  if (
+    access.type === "zhipu-coding-plan-api-key" ||
+    (access.type === "zhipu-account" &&
+      (access.mode === "individual-coding-plan" || access.mode === "team-coding-plan")) ||
+    isOfficialProviderHost(providerConfig.baseURL)
+  ) {
+    return true;
+  }
+  try {
+    return CLIENT_REQUEST_SIGNING_HOSTS.has(
+      new URL(providerConfig.baseURL).hostname.toLowerCase(),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function readHeaderValue(
+  headers: Record<string, string> | undefined,
+  name: string,
+): string | undefined {
+  if (!headers) return undefined;
+  const normalizedName = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === normalizedName) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function resolveCodingPlanSignatureHeaders(
+  config: CodingPlanSignatureRuntimeConfig,
+): Record<string, string> {
+  return typeof config.headers === "function" ? config.headers() : config.headers;
+}
+
+/** 验证码头单次有效，合并新鉴权材料前必须剥掉上一轮的残留（复用旧 param 会触发 F008）。 */
+const STALE_CAPTCHA_VERIFY_HEADERS = new Set([
+  "x-aliyun-captcha-verify-param",
+  "x-aliyun-captcha-verify-region",
+]);
+
 function applyModelRequestAuth(
   providerConfig: AiSdkProviderConfig,
   requestAuth: ModelRequestAuth | undefined,
 ): AiSdkProviderConfig {
   if (!requestAuth) return providerConfig;
+  const headersWithoutStaleCaptcha = Object.fromEntries(
+    Object.entries(providerConfig.headers ?? {}).filter(
+      ([name]) => !STALE_CAPTCHA_VERIFY_HEADERS.has(name.toLowerCase()),
+    ),
+  );
   return {
     ...providerConfig,
     ...(requestAuth.apiKey ? { apiKey: requestAuth.apiKey } : {}),
-    ...(requestAuth.headers
-      ? { headers: mergeModelRequestHeaders(providerConfig.headers, requestAuth.headers) }
-      : {}),
+    headers: mergeModelRequestHeaders(headersWithoutStaleCaptcha, requestAuth.headers),
   };
 }
 

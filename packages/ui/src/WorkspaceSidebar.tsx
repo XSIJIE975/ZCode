@@ -259,6 +259,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   onOpenCommandCenter,
   onOpenAutomations,
   onOpenPluginStore,
+  onOpenDeveloperTools,
   automationsActive = false,
   pluginStoreActive = false,
   onFileTreeOpenChange,
@@ -311,6 +312,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   onOpenCommandCenter: () => void;
   onOpenAutomations?: () => void;
   onOpenPluginStore?: () => void;
+  /** 打开右侧面板的开发者工具 tab（客户端签名等诊断明细的常驻入口）。 */
+  onOpenDeveloperTools?: (taskId: string) => void;
   automationsActive?: boolean;
   pluginStoreActive?: boolean;
   onFileTreeOpenChange?: (open: boolean) => void;
@@ -1369,6 +1372,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                   activeTaskId={activeTaskId}
                   taskSortBy={taskSortBy}
                   onSelectTask={handleTaskRowSelect}
+                  onOpenDeveloperTools={
+                    onOpenDeveloperTools
+                      ? (taskId) => {
+                          handleTaskRowSelect(workspacePath, taskId, workspaceIdentity);
+                          onOpenDeveloperTools(taskId);
+                        }
+                      : undefined
+                  }
                   onOpenFileTree={(target) => {
                     setFileTreeTarget(target);
                     setIsFileTreeOpen(true);
@@ -1414,6 +1425,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                     activeTaskId={activeTaskId}
                     taskSortBy={taskSortBy}
                     onSelectTask={handleTaskRowSelect}
+                    onOpenDeveloperTools={
+                      onOpenDeveloperTools
+                        ? (taskId) => {
+                            handleTaskRowSelect(workspacePath, taskId, workspaceIdentity);
+                            onOpenDeveloperTools(taskId);
+                          }
+                        : undefined
+                    }
                   />
                 ) : (
                   <DndContext
@@ -1533,6 +1552,20 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                                             closeTab={closeTab}
                                             toggleWorkspaceExpanded={toggleWorkspaceExpanded}
                                             onSelectTask={onSelectTask}
+                                            onOpenDeveloperTools={
+                                              onOpenDeveloperTools
+                                                ? (taskId: string) => {
+                                                    // 列表菜单入口：先选中该会话（pane 绑定当前会话）
+                                                    // 再打开开发者工具，保证面板展示该行任务。
+                                                    onSelectTask(
+                                                      workspacePath,
+                                                      taskId,
+                                                      workspaceIdentity,
+                                                    );
+                                                    onOpenDeveloperTools(taskId);
+                                                  }
+                                                : undefined
+                                            }
                                             onStartDraftInWorkspace={onStartDraftInWorkspace}
                                             taskItems={
                                               taskGroup?.items ?? EMPTY_WORKSPACE_TASK_ITEMS
@@ -1630,6 +1663,18 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                                   id: "workspaceSidebar.noConversations",
                                 })}
                                 onSelectTask={handleTaskRowSelect}
+                                onOpenDeveloperTools={
+                                  onOpenDeveloperTools
+                                    ? (taskId) => {
+                                        handleTaskRowSelect(
+                                          workspacePath,
+                                          taskId,
+                                          workspaceIdentity,
+                                        );
+                                        onOpenDeveloperTools(taskId);
+                                      }
+                                    : undefined
+                                }
                               />
                             </WorkspacePurposeSection>
                           ),

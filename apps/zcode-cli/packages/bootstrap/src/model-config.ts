@@ -1,6 +1,7 @@
 import type {
   AiSdkModelExecutionConfig,
   AiSdkNetworkConfig,
+  CodingPlanSignatureRuntimeConfig,
   EnvRecord,
 } from "@zcode/adapters/model";
 import {
@@ -21,6 +22,9 @@ interface RuntimeExecutionConfigOptions {
   sourceTitle?: ModelProviderSourceTitle;
 }
 
+/** feature gate 查询路径（挂在 ZCode 平台端点 origin 上）。 */
+const CODING_PLAN_SIGNATURE_CONFIG_PATH = "/api/v1/agent/configs";
+
 export function createRuntimeAiSdkModelExecutionConfig(
   env: EnvRecord = process.env,
   options: RuntimeExecutionConfigOptions = {},
@@ -28,8 +32,24 @@ export function createRuntimeAiSdkModelExecutionConfig(
   const network = normalizeAiSdkNetworkConfig(options.network);
   return {
     defaultHeaders: buildCliZCodeSourceHeaders(env, options),
+    // 官方 Coding Plan 客户端签名配置：gate 地址跟随 ZCODE_BASE_URL / ZCODE_ENDPOINT_ORIGIN，
+    // 查询头复用与模型请求一致的来源头；签名本身只在 requiresClientRequestSigning 命中时启用。
+    codingPlanSignature: createCodingPlanSignatureConfig(env, options),
     env,
     ...(network ? { network } : {}),
+  };
+}
+
+function createCodingPlanSignatureConfig(
+  env: EnvRecord,
+  options: Pick<RuntimeExecutionConfigOptions, "appVersion" | "sourceTitle">,
+): CodingPlanSignatureRuntimeConfig {
+  const path = CODING_PLAN_SIGNATURE_CONFIG_PATH.startsWith("/")
+    ? CODING_PLAN_SIGNATURE_CONFIG_PATH
+    : `/${CODING_PLAN_SIGNATURE_CONFIG_PATH}`;
+  return {
+    configUrl: `${resolveRuntimeZCodeEndpointOrigin(env)}${path}`,
+    headers: buildCliZCodeSourceHeaders(env, options),
   };
 }
 

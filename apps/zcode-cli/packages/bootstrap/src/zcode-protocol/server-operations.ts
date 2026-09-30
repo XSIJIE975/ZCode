@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- ZCode Protocol 的 session/workspace 方法共享同一个 server context 与 snapshot helpers，迁移期先集中维护。 */
-import { observeSessionDebug } from "./session-debug.js";
+import { observeDetachedSessionDebug, observeSessionDebug } from "./session-debug.js";
 import {
   TASK_LIST_SESSION_TYPES,
   isTaskListSessionType,
@@ -2921,6 +2921,8 @@ export async function getTaskTokenUsage(
       modelRequestCount: 0,
       modelErrorCount: 0,
       inputBaselineBySource: {},
+      turnCount: 0,
+      toolCallCount: 0,
     };
   }
 
@@ -2938,6 +2940,18 @@ export async function getTaskTokenUsage(
     modelRequestCount: usage.modelRequestCount,
     modelErrorCount: usage.modelErrorCount,
     inputBaselineBySource: usage.inputBaselineBySource,
+    turnCount: usage.turnCount,
+    toolCallCount: usage.toolCallCount,
+    ...(usage.lastRoundTokensPerSecond !== undefined
+      ? { lastRoundTokensPerSecond: usage.lastRoundTokensPerSecond }
+      : {}),
+    ...(usage.averageTokensPerSecond !== undefined
+      ? { averageTokensPerSecond: usage.averageTokensPerSecond }
+      : {}),
+    primaryInputTokens: usage.primaryInputTokens,
+    primaryOutputTokens: usage.primaryOutputTokens,
+    primaryCacheReadTokens: usage.primaryCacheReadTokens,
+    ...(usage.lastClientSigning ? { lastClientSigning: usage.lastClientSigning } : {}),
   };
 }
 
@@ -3031,6 +3045,9 @@ export function onSessionEvent(
       event,
       record.app.sessionId,
     );
+    // 子代理的网络/签名事件并入父会话调试快照：开发者工具按主会话查询，
+    // 子代理请求此前在这里被跳过导致网络列表只有主会话数据。
+    observeDetachedSessionDebug(record, event);
     return;
   }
   // record.updatedAt 是 sessions-index 的 lastActivityAt 事实源（v4-bridge

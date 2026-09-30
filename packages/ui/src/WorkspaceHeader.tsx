@@ -56,6 +56,7 @@ export function WorkspaceHeader({
   isTerminalOpen,
   isSidePaneOpen,
   onRefreshGit,
+  onOpenDeveloperTools,
   onToggleTerminal,
   onToggleSidePane,
   toggleSidePaneShortcutLabel,
@@ -100,6 +101,7 @@ export function WorkspaceHeader({
   isTerminalOpen: boolean;
   isSidePaneOpen: boolean;
   onRefreshGit: () => void;
+  onOpenDeveloperTools?: () => void;
   onToggleTerminal: () => void;
   onToggleBrowser: () => void;
   onToggleSidePane: () => void;
@@ -193,6 +195,7 @@ export function WorkspaceHeader({
             reloadSessionDisabled={reloadSessionDisabled}
             reloadSessionPending={reloadSessionPending}
             onRefreshGit={onRefreshGit}
+            onOpenDeveloperTools={onOpenDeveloperTools}
           />
         ) : (
           <div className="min-w-0 flex-1" aria-hidden="true" />

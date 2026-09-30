@@ -171,6 +171,10 @@ export const PlatformChannels = {
   SaveFile: "zcode:save-file",
   /** Renderer → Main：用 Chromium 打印引擎把当前页面 print 媒体版面导出为 PDF */
   PrintToPdf: "zcode:print-to-pdf",
+  /** Main → Renderer：Start Plan 需要人机验证，请求渲染端跑 AliyunCaptcha 并回传验证参数 */
+  CaptchaVerifyRequested: "zcode:captcha-verify-requested",
+  /** Renderer → Main：Start Plan 人机验证结果（验证参数或失败原因）；按 requestId 关联 */
+  CaptchaVerifyResult: "zcode:captcha-verify-result",
   /** Main → Renderer：转发远程连接过程日志 */
   RemoteConnectionLog: "zcode:remote-connection-log",
   /** Main → Renderer：远程 workspace session 已关闭 */
@@ -562,6 +566,8 @@ export const HostMessageTypes = {
   BrowserExecuteResult: "browser-execute-result",
   /** main → host：本地视频 canonical path 授权结果 */
   LocalMediaPreviewPathAuthorizeResult: "local-media-preview-path-authorize-result",
+  /** main → host：Start Plan 人机验证结果（渲染端 AliyunCaptcha 跑完回传，按 requestId 关联） */
+  CaptchaVerifyResult: "captcha-verify-result",
   /** Main → Host：全局前台 ZCode 窗口派生的 producer focus fact。 */
   CuaPipFocusChanged: "cua-pip-focus-changed",
   /** main → host：要求 Host 现读本地 Source，并同步指定 Remote Environment。 */
@@ -659,6 +665,8 @@ export const HostResponseTypes = {
   BrowserExecuteRequest: "browser-execute-request",
   /** host → main：请求授权 Agent 已精确校验的本地视频路径 */
   LocalMediaPreviewPathAuthorizeRequest: "local-media-preview-path-authorize-request",
+  /** host → main：Start Plan 模型请求需要人机验证（Host 的 captchaVerificationPort 桥） */
+  CaptchaVerifyRequest: "captcha-verify-request",
   /** host → main：RPC 网络遥测批次（channel.command 成功率/耗时） */
   NetworkTelemetryBatch: "network-telemetry-batch",
   /** host → main：本地 Provisioning Source 成功持久化。 */
@@ -696,6 +704,31 @@ export interface PlatformChannelMap {
   [PlatformChannels.PrintToPdf]: {
     request: void;
     response: PrintPageToPdfResult;
+  };
+  /** Start Plan 人机验证请求（Main → Renderer）。验证参数单次有效，取值不落日志。 */
+  [PlatformChannels.CaptchaVerifyRequested]: {
+    request: {
+      requestId: string;
+      region: string;
+      prefix: string;
+      sceneId: string;
+      language?: "cn" | "en";
+      reason: "model-request" | "captcha-retry";
+    };
+    response: void;
+  };
+  /** Start Plan 人机验证结果（Renderer → Main），按 requestId 关联。 */
+  [PlatformChannels.CaptchaVerifyResult]: {
+    request: {
+      requestId: string;
+      ok: boolean;
+      captchaVerifyParam?: string;
+      captchaRegion?: string;
+      errorMessage?: string;
+      /** 取消/超时等 errorKind，供 Host 诊断日志；不含验证材料。 */
+      errorKind?: string;
+    };
+    response: void;
   };
   [PlatformChannels.RemoteConnectionLog]: {
     request: {

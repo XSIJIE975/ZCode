@@ -66,6 +66,7 @@ export async function recordModelUsageFact(
   const failedNetworkEvent = networkEvents.findLast(
     (event) => event.type === "model_request_failed",
   );
+  const clientSigning = lastClientSigningObservation(networkEvents);
   const firstTokenAt = firstModelTokenAt(input.events, input.networkEventStartIndex);
   const durationMs = completedAt - input.startedAt;
   const errorInfo = errorInfoFor(input.error, failedNetworkEvent);
@@ -116,6 +117,8 @@ export async function recordModelUsageFact(
       errorMessage: errorInfo.message,
       rawUsage: usage,
       providerMetadata: input.result?.providerMetadata,
+      // 签名观测同一 attempt 内可有多条（被拒重签/降级），落库只留最终一条。
+      ...(clientSigning ? { clientSigning } : {}),
     });
   } catch (error) {
     runtime.logger?.warn("Usage model fact write failed", {
@@ -368,6 +371,27 @@ function modelNetworkEvents(events: readonly SessionEvent[]) {
         message?: string;
       } => Boolean(payload && typeof payload === "object" && "type" in payload),
     );
+}
+
+/** 取本 attempt 内最后一条签名观测的结论；只保留 kind/reason，签名头取值不落库。 */
+function lastClientSigningObservation(
+  networkEvents: Array<{ type: string } & Record<string, unknown>>,
+): { kind: string; reason?: string } | undefined {
+  for (let index = networkEvents.length - 1; index >= 0; index -= 1) {
+    const payload = networkEvents[index];
+    if (payload.type !== "model_client_signing") continue;
+    const signing = payload.clientSigning;
+    if (
+      signing &&
+      typeof signing === "object" &&
+      typeof (signing as { kind?: unknown }).kind === "string"
+    ) {
+      const kind = (signing as { kind: string }).kind;
+      const reason = (signing as { reason?: unknown }).reason;
+      return typeof reason === "string" ? { kind, reason } : { kind };
+    }
+  }
+  return undefined;
 }
 
 function firstModelTokenAt(

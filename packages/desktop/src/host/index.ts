@@ -208,6 +208,110 @@ const pendingLocalMediaPreviewPathAuthorizations = new Map<
   PendingLocalMediaPreviewPathAuthorization
 >();
 
+interface PendingCaptchaVerifyResult {
+  resolve: (value: { captchaVerifyParam: string; captchaRegion?: string }) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+  onAbort?: () => void;
+}
+
+const pendingCaptchaVerifyRequests = new Map<string, PendingCaptchaVerifyResult>();
+/** 渲染端人机验证总时限；CLI 侧 runtime-headers 端口总时限 180s，这里取 150s 留出传输余量。 */
+const CAPTCHA_VERIFY_TIMEOUT_MS = 150_000;
+let nextCaptchaVerifyRequestSeq = 0;
+
+/**
+ * Start Plan 人机验证端口：经 parentPort 把请求转给 Main，Main 弹渲染端 AliyunCaptcha，
+ * 结果按 requestId 回传。验证参数单次有效；超时/缺失 parentPort 按失败收口。
+ */
+function createCaptchaVerificationPort(): {
+  requestCaptchaVerification(input: {
+    requestId: string;
+    sessionId: string;
+    providerId: string;
+    reason: "model-request" | "captcha-retry";
+    signal?: AbortSignal;
+  }): Promise<{ captchaVerifyParam: string; captchaRegion?: string }>;
+} {
+  return {
+    requestCaptchaVerification(input) {
+      if (!parentPort) {
+        return Promise.reject(new Error("parentPort unavailable"));
+      }
+      nextCaptchaVerifyRequestSeq += 1;
+      // 协议 requestId 与 runtime-headers 请求关联，但同键并发请求不能互踩，桥内自增成 bridgeId。
+      const bridgeId = `${input.requestId}:${nextCaptchaVerifyRequestSeq}`;
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          if (pendingCaptchaVerifyRequests.delete(bridgeId)) {
+            reject(new Error("Captcha verification timed out after 150000ms."));
+          }
+        }, CAPTCHA_VERIFY_TIMEOUT_MS);
+        timeout.unref?.();
+        const onAbort = (): void => {
+          if (pendingCaptchaVerifyRequests.delete(bridgeId)) {
+            clearTimeout(timeout);
+            reject(input.signal?.reason ?? new Error("Captcha request cancelled"));
+          }
+        };
+        if (input.signal) {
+          if (input.signal.aborted) {
+            reject(input.signal.reason ?? new Error("Captcha request cancelled"));
+            return;
+          }
+          input.signal.addEventListener("abort", onAbort, { once: true });
+        }
+        pendingCaptchaVerifyRequests.set(bridgeId, { resolve, reject, timeout, onAbort });
+        try {
+          parentPort.postMessage({
+            type: HostResponseTypes.CaptchaVerifyRequest,
+            requestId: bridgeId,
+            sessionId: input.sessionId,
+            providerId: input.providerId,
+            reason: input.reason,
+          });
+        } catch (error) {
+          if (pendingCaptchaVerifyRequests.delete(bridgeId)) {
+            clearTimeout(timeout);
+            input.signal?.removeEventListener("abort", onAbort);
+            reject(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
+      });
+    },
+  };
+}
+
+/** main → host：渲染端验证码结果回执（按 bridgeId 关联）；迟到回执幂等丢弃。 */
+function handleCaptchaVerifyResult(message: {
+  requestId: string;
+  ok: boolean;
+  captchaVerifyParam?: string;
+  captchaRegion?: string;
+  errorMessage?: string;
+  errorKind?: string;
+}): void {
+  const pending = pendingCaptchaVerifyRequests.get(message.requestId);
+  if (!pending) return;
+  pendingCaptchaVerifyRequests.delete(message.requestId);
+  clearTimeout(pending.timeout);
+  if (message.ok && message.captchaVerifyParam) {
+    pending.resolve({
+      captchaVerifyParam: message.captchaVerifyParam,
+      ...(message.captchaRegion ? { captchaRegion: message.captchaRegion } : {}),
+    });
+    return;
+  }
+  pending.reject(
+    new Error(
+      message.errorMessage ??
+        (message.errorKind
+          ? `Captcha verification failed (${message.errorKind}).`
+          : "captcha verify failed"),
+    ),
+  );
+}
+
 function authorizeLocalMediaPreviewPath(path: string): Promise<string> {
   if (!parentPort) {
     return Promise.reject(new Error("parentPort unavailable"));
@@ -2358,6 +2462,20 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
     return;
   }
 
+  if (msg.type === HostMessageTypes.CaptchaVerifyResult) {
+    handleCaptchaVerifyResult({
+      requestId: msg.requestId,
+      ok: msg.ok === true,
+      ...(typeof msg.captchaVerifyParam === "string"
+        ? { captchaVerifyParam: msg.captchaVerifyParam }
+        : {}),
+      ...(typeof msg.captchaRegion === "string" ? { captchaRegion: msg.captchaRegion } : {}),
+      ...(typeof msg.errorMessage === "string" ? { errorMessage: msg.errorMessage } : {}),
+      ...(typeof msg.errorKind === "string" ? { errorKind: msg.errorKind } : {}),
+    });
+    return;
+  }
+
   if (msg.type === HostMessageTypes.CronRun) {
     if (databaseStartup?.coordinator.snapshot.phase !== "ready") {
       parentPort.postMessage({
@@ -2841,6 +2959,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
               prepareLegacyAccountConnections,
               hostApiNetworkTransport,
               authorizeLocalMediaPreviewPath,
+              captchaVerificationPort: createCaptchaVerificationPort(),
               runtimeProcessEnvPatch: msg.runtimeProcessEnvPatch,
               agentRuntimeContext: {
                 getDeviceMid: () => msg.deviceMid,

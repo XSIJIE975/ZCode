@@ -800,6 +800,24 @@ export const v4ConversationUsageResultSchema = z
     modelRequestCount: z.number().int().nonnegative(),
     modelErrorCount: z.number().int().nonnegative(),
     inputBaselineBySource: z.record(z.string(), z.number().int().nonnegative()),
+    // 会话统计条的持久化口径：轮数来自 turn_usage 去重行数，步数是工具调用累计，
+    // 两个 tps 只统计 main_turn completed 请求（净生成时长 = duration - TTFT）。
+    // optional 保持旧服务端结果可解析。
+    turnCount: z.number().int().nonnegative().optional(),
+    toolCallCount: z.number().int().nonnegative().optional(),
+    lastRoundTokensPerSecond: z.number().positive().optional(),
+    averageTokensPerSecond: z.number().positive().optional(),
+    primaryInputTokens: z.number().int().nonnegative().optional(),
+    primaryOutputTokens: z.number().int().nonnegative().optional(),
+    primaryCacheReadTokens: z.number().int().nonnegative().optional(),
+    // 最近一次客户端签名结论（跨重启持久）；kind 与观测事件同枚举。
+    lastClientSigning: z
+      .object({
+        kind: z.string().min(1),
+        reason: z.string().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type V4ConversationUsageResult = z.infer<typeof v4ConversationUsageResultSchema>;

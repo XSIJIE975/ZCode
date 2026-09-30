@@ -342,7 +342,7 @@ import { createLegacyTeamOrganizationResolver } from "./model-provider/legacyTea
 import { createObservableSettingService } from "./setting/observableSettingService.js";
 import { createCredentialService } from "./credential/credentialService.js";
 import { createBroadcastService } from "./broadcast/broadcastService.js";
-import { createZCodeAgentService } from "./zcode-agent/zcodeAgentService.js";
+import { createZCodeAgentService, type CreateZCodeAgentServiceOptions } from "./zcode-agent/zcodeAgentService.js";
 import type { ZCodeAgentCommandResolver } from "./zcode-agent/zcodeAgentProcessManager.js";
 import { buildAgentTelemetrySpawnEnv } from "./zcode-agent/agentTelemetryEnv.js";
 import { resolveZCodeAgentPresentationSurface } from "./zcode-agent/zcodeAgentPresentationSurface.js";
@@ -400,6 +400,7 @@ import {
 import { createUsageStatsService } from "./usage-stats/usageStatsService.js";
 import { createCodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscriptionService.js";
 import { createClientConfigService } from "./client-config/clientConfigService.js";
+import { createCaptchaConfigResolver } from "./client-config/captchaConfigResolver.js";
 import { IClientConfigService } from "./client-config/clientConfig.js";
 import { createClientScenesService } from "./client-scenes/clientScenesService.js";
 import { createSkillsService } from "./skills/skillsService.js";
@@ -1325,6 +1326,11 @@ export function createLocalServices(options: {
   };
   /** 所属 Environment 的 ZCode Built-in Provider Config 物理路径。 */
   zcodeBuiltinProviderConfigFilePath: string;
+  /**
+   * Start Plan 人机验证执行端口（Host → Main → Renderer 桥）。
+   * 缺省 = 无渲染端可执行验证；需要验证的 Start Plan 请求按失败应答。
+   */
+  captchaVerificationPort?: CreateZCodeAgentServiceOptions["captchaVerificationPort"];
   /** HTTP Server 只有在调用方明确配置认证时才暴露跨 Environment Provisioning target。 */
   providerProvisioningTargetEnabled?: boolean;
   /** Desktop Host 私有通知；只在 Source 成功持久化后请求 Main 调度远端镜像。 */
@@ -2082,11 +2088,25 @@ export function createLocalServices(options: {
           resolveOffPeakClientConfig: () => codingPlanSubscriptionService.getOffPeakClientConfig(),
           resolveOffPeakTaskService: () => offPeakTaskServiceForAgent,
         };
+  // 公开配置服务的唯一实例：Agent 的验证码门禁与窗口级读取共用同一条请求缓存，
+  // 不能各建一份（第二份缓存会让 skip 开关在两个读者之间表现不一致）。
+  const clientConfigService = createClientConfigService({
+    apiClient,
+    resolveRequestContext: async () => ({
+      endpointOrigin: await resolveCurrentZCodeEndpointOrigin(),
+      appVersion: ZCODE_VERSION,
+      platform: `${process.platform}-${process.arch}`,
+    }),
+  });
   const zcodeAgentService = createZCodeAgentService({
     ...(agentAccountProviderConfigSource
       ? { accountProviderConfigSource: agentAccountProviderConfigSource }
       : {}),
     accountRequestAuthService,
+    resolveCaptchaConfig: createCaptchaConfigResolver({ clientConfigService }),
+    ...(options?.captchaVerificationPort
+      ? { captchaVerificationPort: options.captchaVerificationPort }
+      : {}),
     ...(modelSelectionReadinessSource ? { modelSelectionReadinessSource } : {}),
     authorizeLocalMediaPreviewPath: options?.authorizeLocalMediaPreviewPath,
     ...offPeakToolWiring,
@@ -2475,17 +2495,7 @@ export function createLocalServices(options: {
       }),
     )
     .register(ICodingPlanSubscriptionService, codingPlanSubscriptionService)
-    .register(
-      IClientConfigService,
-      createClientConfigService({
-        apiClient,
-        resolveRequestContext: async () => ({
-          endpointOrigin: await resolveCurrentZCodeEndpointOrigin(),
-          appVersion: ZCODE_VERSION,
-          platform: `${process.platform}-${process.arch}`,
-        }),
-      }),
-    )
+    .register(IClientConfigService, clientConfigService)
     .register(IClientScenesService, createClientScenesService({ apiClient }))
     .register(
       IOffPeakTaskService,

@@ -212,6 +212,7 @@ import type {
 } from "@/v4/legacyChatViewTypes.js";
 import type { SessionLease } from "@/v4/sessionDataLayer.js";
 import { V4InteractionDialogs } from "@/v4/V4InteractionDialogs.js";
+import { SessionStatsBar } from "@/v4/SessionStatsBar.js";
 import {
   useScopedConversationTelemetryForegroundEnabled,
   useScopedConversationTelemetrySupervisor,
@@ -4366,6 +4367,16 @@ export function SessionPane({
   const composerNode = readOnly ? null : (
     <ConversationComposer
       key="conversation-composer"
+      statsBar={
+        sessionId ? (
+          <SessionStatsBar
+            sessionId={sessionId}
+            workspacePath={workspacePath}
+            workspaceIdentity={workspaceIdentity}
+            active={Boolean(snapshot?.control.canStop)}
+          />
+        ) : undefined
+      }
       // Snapshot 仍服务用量、路由与运行态；工具栏的 mode/model 只读下方 Composer Draft。
       snapshot={snapshot}
       sessionId={sessionId}
