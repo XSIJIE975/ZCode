@@ -58,5 +58,6 @@ fpm/AppImage 工具链需要 Linux 宿主或 Docker）。GitHub 托管 runner �
 3. 本地链路校验：`pnpm bundle:desktop -- --os win --arch x64 --dry-run` 能正确解析
    target 并打印最终 electron-builder 命令（已执行通过，2026-10-08）。
 4. workflow YAML 可被标准解析器加载（写完后本地用 `yaml` 库校验）。
-5. 已知首次实跑风险：linux 目标的 AppImage/deb 工具链由 electron-builder 自动下载，
-   若 runner 网络受限会在此失败；mac 未签名产物属预期，不视为构建失败。
+5. 首次实跑结果（2026-10-08，xcode-v3.14.3-test1）：win-x64 与 mac-arm64 一次通过；
+   linux 的 AppImage/deb/rpm 构建通过，pacman 目标因 ubuntu runner 缺 `bsdtar`
+   （libarchive）失败——修复为 workflow 中 Linux job 显式安装 `libarchive-tools`。
