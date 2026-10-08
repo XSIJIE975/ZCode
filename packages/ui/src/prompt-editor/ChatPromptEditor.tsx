@@ -356,13 +356,10 @@ export function ChatPromptEditor({
           shellClassName,
         )}
       >
-        {statsBar ? (
-          // 顶栏用负边距抵消 shell 的 p-3，分隔线通到卡片左右边缘；
-          // 卡片 overflow-hidden 会把行的外角裁进 rounded-2xl。
-          <div className="-mx-3 -mt-3 mb-0 flex min-w-0 items-center justify-end border-b border-input-border px-3 py-1.5">
-            {statsBar}
-          </div>
-        ) : null}
+        {/* statsBar 槽位只透传：容器由内容方自渲染（如 SessionStatsBar 无数据时
+            连容器一起返回 null）。这里不能包壳做真值判断——React 元素恒为真值，
+            会在内容方返回 null 时渲染出空壳顶栏。 */}
+        {statsBar}
         {draggingOverlayHint ? (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-accent/55 backdrop-blur-sm">
             <div className="flex items-center gap-2 rounded-full border border-border bg-accent px-4 py-2 text-ui-base text-foreground shadow-sm">

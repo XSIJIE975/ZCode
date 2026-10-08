@@ -59,8 +59,10 @@ export function SigningBadge({
  *
  * 数据合成：live 部分来自进程内 session-debug 快照（主轮请求级，处理中 1s /
  * 空闲 5s 刷新），持久部分来自 v4/conversation/usage（SQLite model_usage 聚合，
- * 重启后仍在）。本组件只是内容行，容器由输入卡片提供（ChatPromptEditor 的
- * rounded-2xl bg-input 卡顶栏），圆角/背景与输入框天然一致。
+ * 重启后仍在）。顶栏容器（负边距抵消输入卡片 p-3、border-b 分隔线）也由本组件
+ * 自渲染：无数据时连同容器一起返回 null，ChatPromptEditor 只透传 ReactNode，
+ * 不能对 React 元素做真值包壳（元素恒为真值，会渲染出空壳顶栏，见
+ * docs/specs/session-stats-bar.md）。圆角/背景与输入框卡片天然一致。
  *
  * 窄窗口渐进精简（容器查询，沿用 GitActionMenu workspace-header 的做法）：
  * 输入/输出用 ↑/↓ 符号替代文字标签；<720px 隐藏「上一轮 tps」；<520px 只留
@@ -145,8 +147,10 @@ export function SessionStatsBar({
   const outputText = segments.output ? compact(items.outputTokens) : undefined;
 
   return (
+    // 顶栏容器：负边距抵消卡片 p-3，分隔线通到卡片左右边缘；卡片 overflow-hidden
+    // 会把行的外角裁进 rounded-2xl。无数据时上方已整体返回 null（容器一起消失）。
     <div
-      className="flex max-w-full min-w-0 flex-wrap items-center justify-end gap-x-2.5 gap-y-0.5 text-ui-xs text-foreground-subtle"
+      className="-mx-3 -mt-3 mb-0 flex max-w-full min-w-0 flex-wrap items-center justify-end gap-x-2.5 gap-y-0.5 border-b border-input-border px-3 py-1.5 text-ui-xs text-foreground-subtle"
       data-testid="session-stats-bar"
     >
       {turnsText ? (
