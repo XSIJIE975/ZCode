@@ -23,6 +23,10 @@ fpm/AppImage 工具链需要 Linux 宿主或 Docker）。GitHub 托管 runner �
   workflow_dispatch 不发布，发布只能由 tag 触发。
 - tag 命名空间固定为 `xcode-v<version>`（如 `xcode-v3.14.3`），且应指向 feature/xcode
   的提交：main 分支追踪上游仓库，`v*` 前缀留给上游 tag，避免同步上游时误触发发布。
+- 测试 tag 约定：tag 名含 `-test`（如 `xcode-v3.14.3-test1`）时只构建三平台、跳过
+  release job，用作发布前的验证。之所以走 tag 而不是 workflow_dispatch：GitHub 平台
+  硬限制手动触发要求 workflow 文件存在于默认分支，而本仓库 main 仅作上游镜像不放
+  CI 文件，tag 触发不受该限制（用 tag 指向 commit 里的 workflow 文件）。
 - Release 由独立的 `release` job 创建（`needs: bundle`，三平台全部成功才发布；
   job 级 `permissions: contents: write`）。`gh release view` 判重：已存在则
   `--clobber` 覆盖同名产物，保证 workflow 重跑幂等；不存在则创建并附静态说明
