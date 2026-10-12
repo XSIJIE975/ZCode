@@ -2,7 +2,7 @@
 // 空流合成 3007、ProviderBusinessError 识别。对应发行版 CaptchaRequestRetry 移植，
 // 防止后续改动破坏重试语义对齐（协议细节见 docs/specs/start-plan-captcha.md）。
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import {
   CaptchaRequestRetry,
   createZcodePlanCaptchaEmptyStreamError,

@@ -6208,7 +6208,7 @@ const zhCN: Record<string, string> = {
   "chat.permission.switchMode.placeholder": "实施计划",
 
   // ZCode Agent
-  "zcode.error.providerBusiness.3007": "请求被网关安全校验拒绝，请稍后重试或联系支持。",
+  // zcode.error.providerBusiness.3007 由上游 request-security-edition/messages.ts 提供。
   "zcode.unavailable": "AI 代理不可用",
   "zcode.initFailed": "启动 AI 代理失败",
   "zcode.error.TASK_OWNED_BY_OTHER_HOST": "该任务正在另一个已连接视图中运行。",

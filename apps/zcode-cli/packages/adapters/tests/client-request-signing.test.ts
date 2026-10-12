@@ -2,7 +2,7 @@
 // gate 负缓存、signer 状态机（gate 关闭/签名/验签被拒降级/无效凭据 fail-open）。
 // 对应发行版逆向移植，防止后续改动破坏协议对齐（冒烟脚本在仓外，不入库）。
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import {
   CodingPlanSignatureFeatureGate,
   ClientRequestSigningManager,

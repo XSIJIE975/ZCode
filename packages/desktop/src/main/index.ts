@@ -690,7 +690,7 @@ function wakeCronScheduler(automationId: string): void {
 }
 function wakeOffPeakScheduler(offPeakTaskId?: string): void {
   // 复用同一条 scheduler-wake 通道（tick 同时覆盖 cron 与 off-peak 分支），仅日志标签区分。
-  cronScheduler?.wake(`offpeak:${offpeakTaskId ?? "sync"}`);
+  cronScheduler?.wake(`offpeak:${offPeakTaskId ?? "sync"}`);
 }
 // 验证码回执路由：bridgeId 前缀是发起请求的 host 进程 pid 没有保障（多窗口），
 // 这里按「最后一次投递验证码请求的 host」路由——同一时刻至多一个 Start Plan 验证在跑

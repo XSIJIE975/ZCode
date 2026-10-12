@@ -1,7 +1,6 @@
 import { BadgeCheck, Check, Settings2, ShieldAlert } from "lucide-react";
 import { useMemo } from "react";
 import { cn } from "@/components/lib/utils.js";
-import { Checkbox } from "@/components/ui/checkbox.js";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.js";
 import { useSessionDebug } from "@/hooks/useSessionDebug.js";
 import { useTaskUsageStats } from "@/hooks/useTaskUsageStats.js";

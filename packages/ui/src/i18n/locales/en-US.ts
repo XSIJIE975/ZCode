@@ -6495,10 +6495,8 @@ const enUS: Record<string, string> = {
   "chat.permission.switchMode.placeholder": "Implementation plan",
 
   // ZCode Agent
-  "zcode.error.providerBusiness.3007":
-    "The request was rejected by the gateway security check. Please try again later or contact support.",
-  "zcode.error.modelSuspiciousEmpty":
-    "The model returned no content (often caused by an expired token or plan issues). Please send again.",
+  // zcode.error.providerBusiness.3007 / modelSuspiciousEmpty 由上游
+  // request-security-edition/messages.ts 提供（locales 文件第 1 行 spread），不在此重复。
   "zcode.unavailable": "AI agent not available",
   "zcode.initFailed": "Failed to start AI agent",
   "zcode.error.TASK_OWNED_BY_OTHER_HOST": "This task is already running in another connected view.",
