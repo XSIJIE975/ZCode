@@ -18,7 +18,16 @@ export interface ClientCaptchaConfig {
 export interface ClientConfigSnapshot {
   pluginStoreOrder: PluginStoreOrder | null;
   captcha: ClientCaptchaConfig | null;
+  zsrcUrl: string | null;
 }
+
+const zsrcSchema = z.object({
+  url: z
+    .string()
+    .trim()
+    .url()
+    .refine((value) => /^https?:\/\//i.test(value)),
+});
 
 export const clientConfigReadOptionsSchema = z.object({
   forceRefresh: z.boolean().optional(),
@@ -33,6 +42,7 @@ const envelopeSchema = z.object({
         .object({
           pluginStoreOrder: z.unknown().optional(),
           captcha: z.unknown().optional(),
+          zsrc: z.unknown().optional(),
         })
         .nullish(),
     })
@@ -59,8 +69,10 @@ function parseCaptchaConfig(value: unknown): ClientCaptchaConfig | null {
 export function parseClientConfigSnapshot(payload: unknown): ClientConfigSnapshot {
   const parsed = envelopeSchema.safeParse(payload);
   if (!parsed.success) throw new Error("Invalid public client config response");
+  const configs = parsed.data.data?.configs;
   return {
-    pluginStoreOrder: parsePluginStoreOrder(parsed.data.data?.configs?.pluginStoreOrder),
-    captcha: parseCaptchaConfig(parsed.data.data?.configs?.captcha),
+    pluginStoreOrder: parsePluginStoreOrder(configs?.pluginStoreOrder),
+    captcha: parseCaptchaConfig(configs?.captcha),
+    zsrcUrl: zsrcSchema.safeParse(configs?.zsrc).data?.url ?? null,
   };
 }

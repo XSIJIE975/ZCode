@@ -53,6 +53,7 @@ import type {
   AiSdkModelTextRequest,
   ResolvedAiSdkModel,
 } from "./runner-runtime.js";
+import { AccountRequestRetry } from "./account-request-retry.js";
 import { resolveModelForAttempt, RuntimeHeadersRefreshError } from "./runner-runtime-headers.js";
 import { retryAllowedByFailurePolicy } from "./workflow-model-failure-policy.js";
 import { modelFailureStatusFields, providerRequestIdFromHeaders } from "./runner-telemetry.js";
@@ -92,6 +93,7 @@ export async function runGenerateText(input: {
   const isDev = isDevelopmentModelIOEnv(input.env);
   let requestMessages = input.request.messages;
   let signatureRepairAttempted = false;
+  const authRetry = new AccountRequestRetry(input.request, input.resolved, input.logger);
   let emptyCompletionRetryCount = 0;
   // Start Plan 验证码重试机会：单请求至多一次额外物理尝试，不占普通 retry 预算。
   const captchaRetry = new CaptchaRequestRetry(input.request, input.resolved);
@@ -101,12 +103,18 @@ export async function runGenerateText(input: {
     retryAttemptLoopContinues(
       retryBudget,
       attempt,
-      input.retry.maxAttempts + Number(signatureRepairAttempted) + captchaRetry.extraAttempts,
+      input.retry.maxAttempts +
+      Number(signatureRepairAttempted) +
+      authRetry.extraAttempts +
+      captchaRetry.extraAttempts,
     );
     attempt += 1
   ) {
     const retryBudgetAttempt =
-      attempt - Number(signatureRepairAttempted) - captchaRetry.extraAttempts;
+      attempt -
+      Number(signatureRepairAttempted) -
+      authRetry.extraAttempts -
+      captchaRetry.extraAttempts;
     const attemptRequest = { ...input.request, messages: requestMessages };
     const startedAt = Date.now();
     let resolved = input.resolved;
@@ -114,7 +122,7 @@ export async function runGenerateText(input: {
       {
         ...baseStatusContext,
         maxAttempts: statusMaxAttempts(
-          Number(signatureRepairAttempted) + captchaRetry.extraAttempts,
+          Number(signatureRepairAttempted) + authRetry.extraAttempts + captchaRetry.extraAttempts,
         ),
       },
       attempt,
@@ -164,8 +172,10 @@ export async function runGenerateText(input: {
     try {
       resolved = await resolveModelForAttempt({
         attempt,
+        // 两个重试协调器共用同一条刷新管线：captcha 的刷新原因经 reason 传给 Host；
+        // auth 恢复经 prepareRequest 包装刷新函数注入 expectedAccountScope 校验。
         reason: captchaRetry.takeReason(),
-        request: attemptRequest,
+        request: authRetry.prepareRequest(attemptRequest),
         resolveModel: input.resolveModel,
       });
       const anthropicMetadataUserId = await resolveAnthropicRequestMetadataUserId({
@@ -397,7 +407,9 @@ export async function runGenerateText(input: {
         requestMessages = repairedMessages;
         statusContext = {
           ...statusContext,
-          maxAttempts: statusMaxAttempts(1),
+          maxAttempts: statusMaxAttempts(
+            1 + authRetry.extraAttempts + captchaRetry.extraAttempts,
+          ),
         };
       }
       const canRetryWithFailurePolicy =
@@ -416,11 +428,21 @@ export async function runGenerateText(input: {
       if (captchaRetryClaimed) {
         statusContext = {
           ...statusContext,
-          maxAttempts: statusMaxAttempts(Number(signatureRepairAttempted) + captchaRetry.extraAttempts),
+          maxAttempts: statusMaxAttempts(
+            Number(signatureRepairAttempted) + authRetry.extraAttempts + captchaRetry.extraAttempts,
+          ),
         };
       }
+      const retryWithAuth = authRetry.claim(error, options === undefined);
+      if (retryWithAuth)
+        statusContext = {
+          ...statusContext,
+          maxAttempts: statusMaxAttempts(
+            Number(signatureRepairAttempted) + authRetry.extraAttempts + captchaRetry.extraAttempts,
+          ),
+        };
       const canRetry =
-        captchaRetryClaimed || retryWithRepairedHistory || canRetryWithFailurePolicy;
+        captchaRetryClaimed || retryWithAuth || retryWithRepairedHistory || canRetryWithFailurePolicy;
 
       if (options) {
         recordGenerateTextDebug({
@@ -484,9 +506,9 @@ export async function runGenerateText(input: {
         });
       }
 
-      if (captchaRetryClaimed) {
-        // 验证码被拒：立即重试一次（不退避）。下一次 attempt 的刷新原因已由 takeReason()
-        // 标记为 captcha-retry，Host/渲染端会现跑一次新验证并回传新的验证码头。
+      if (captchaRetryClaimed || retryWithAuth) {
+        // 验证码/账号鉴权被拒：立即重试一次（不退避）。验证码路径的下一次 attempt 刷新原因
+        // 已由 takeReason() 标记为 captcha-retry，Host/渲染端会现跑一次新验证并回传新的验证码头。
         await publishRetryScheduledStatus(
           input,
           statusContext,
@@ -660,11 +682,13 @@ function statusPublishOptions(
   input: {
     logger?: Logger;
     request: AiSdkModelTextRequest;
+    resolved?: Pick<ResolvedAiSdkModel, "requestObservations">;
     statusSink?: ModelStatusSink;
   },
   admission?: AttemptAdmission,
 ) {
   return {
+    requestObservations: input.resolved?.requestObservations,
     logger: input.logger,
     requestStatusSink: input.request.statusSink,
     statusSink: input.statusSink,

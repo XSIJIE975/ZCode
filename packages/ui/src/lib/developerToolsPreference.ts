@@ -5,7 +5,7 @@ export const DEVELOPER_TOOLS_STORAGE_KEYS = [
 
 const DISABLED_VALUES = new Set(["0", "false", "off", "no"]);
 
-function isDeveloperToolsStorageValueEnabled(value: string | null): boolean {
+export function isDeveloperToolsStorageValueEnabled(value: string | null): boolean {
   // 缺省显示开发者工具入口：它是客户端签名状态等诊断信息的常驻明细入口，
   // 不应要求用户手写 localStorage 才能找到；显式写入 0/false/off/no 才隐藏。
   if (value === null) {

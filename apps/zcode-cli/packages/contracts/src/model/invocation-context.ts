@@ -1,3 +1,4 @@
+import type { RequestVerificationReason } from "@zcode/shared";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ZCodeProviderAccountAccess } from "@zcode/shared";
 import type { ModelApiCallObservation } from "../telemetry/index.js";
@@ -31,8 +32,10 @@ export interface ModelInvocationContext {
   preserveProviderStreamBoundaries?: boolean;
   refreshRuntimeHeadersBeforeAttempt?: (input: {
     accountAccess?: ZCodeProviderAccountAccess;
+    expectedAccountScope?: string;
+    rejectedProjectTokenFingerprint?: string;
     attempt: number;
-    reason?: ModelRequestRefreshReason;
+    reason?: RequestVerificationReason;
     abortSignal?: AbortSignal;
     providerId: string;
     modelId: string;
@@ -49,12 +52,17 @@ export interface ModelInvocationContext {
  * `model-request`：常规发送前刷新；`captcha-retry`：网关 3007（captcha verify failed）
  * 后占用唯一额外重试机会时的刷新。刷新原因只是尝试语义，鉴权材料仍按 model-request
  * 种类解析，验证码头由 Host 侧合并叠加。
+ *
+ * 定制缝合：上游 3.15.1 把刷新原因统一为 shared 的 RequestVerificationReason；
+ * 这里保留旧别名指向同一联合类型（shared 侧已扩展 captcha-retry），旧引用不改名。
  */
-export type ModelRequestRefreshReason = "model-request" | "captcha-retry";
+export type ModelRequestRefreshReason = RequestVerificationReason;
 
 /** Adapter 为单个物理请求 attempt 使用的动态鉴权材料。 */
 export interface ModelRequestAuth {
+  accountScope?: string;
   apiKey?: string;
+  apiKeyId?: string;
   headers?: Record<string, string>;
 }
 

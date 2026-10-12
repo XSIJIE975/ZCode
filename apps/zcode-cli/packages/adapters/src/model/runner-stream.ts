@@ -56,6 +56,7 @@ import {
 import { toModelStreamEvent } from "./runner-normalization.js";
 import type { EnvRecord } from "./model-execution.js";
 import { detectProviderBusinessFinishError } from "./provider-finish-business-error.js";
+import { createRequestVerificationEmptyStreamError } from "./request-security-edition/recovery.js";
 import {
   calculateRetryDelay,
   logRetryDelayDecision,
@@ -79,6 +80,8 @@ import type {
   AiSdkModelTextRequest,
   ResolvedAiSdkModel,
 } from "./runner-runtime.js";
+import { isRequestVerificationRejection } from "./request-security-edition/recovery.js";
+import { AccountRequestRetry } from "./account-request-retry.js";
 import { resolveModelForAttempt, RuntimeHeadersRefreshError } from "./runner-runtime-headers.js";
 import { retryAllowedByFailurePolicy } from "./workflow-model-failure-policy.js";
 import {
@@ -120,6 +123,7 @@ export async function* runStreamText(input: {
   const isDev = isDevelopmentModelIOEnv(input.env);
   let requestMessages = input.request.messages;
   let signatureRepairAttempted = false;
+  const authRetry = new AccountRequestRetry(input.request, input.resolved, input.logger);
   let emptyCompletionRetryCount = 0;
   // Start Plan 验证码重试机会：单请求至多一次额外物理尝试，不占普通 retry 预算。
   const captchaRetry = new CaptchaRequestRetry(input.request, input.resolved);
@@ -129,12 +133,18 @@ export async function* runStreamText(input: {
     retryAttemptLoopContinues(
       retryBudget,
       attempt,
-      input.retry.maxAttempts + Number(signatureRepairAttempted) + captchaRetry.extraAttempts,
+      input.retry.maxAttempts +
+      Number(signatureRepairAttempted) +
+      authRetry.extraAttempts +
+      captchaRetry.extraAttempts,
     );
     attempt += 1
   ) {
     const retryBudgetAttempt =
-      attempt - Number(signatureRepairAttempted) - captchaRetry.extraAttempts;
+      attempt -
+      Number(signatureRepairAttempted) -
+      authRetry.extraAttempts -
+      captchaRetry.extraAttempts;
     const startedAt = Date.now();
     // SSE idle timeout 后的重试如果仍固定首请求窗口，容易被同一段 provider 静默窗口反复打断；
     // core recovery 和 adapter 内部 retry 都统一按重试次数每次增加 30s。
@@ -159,7 +169,7 @@ export async function* runStreamText(input: {
       {
         ...baseStatusContext,
         maxAttempts: statusMaxAttempts(
-          Number(signatureRepairAttempted) + captchaRetry.extraAttempts,
+          Number(signatureRepairAttempted) + authRetry.extraAttempts + captchaRetry.extraAttempts,
         ),
       },
       attempt,
@@ -200,7 +210,8 @@ export async function* runStreamText(input: {
       input.logger?.warn("Retrying model stream after thinking signature rejection", {
         attempt,
         event: "model.reasoning_signature_repair.retry",
-        maxAttempts: input.retry.maxAttempts + 1,
+        maxAttempts:
+          input.retry.maxAttempts + 1 + authRetry.extraAttempts + captchaRetry.extraAttempts,
         nextAttempt: attempt + 1,
         requestId: statusContext.requestId,
         status: "waiting",
@@ -282,8 +293,10 @@ export async function* runStreamText(input: {
     try {
       resolved = await resolveModelForAttempt({
         attempt,
+        // 两个重试协调器共用同一条刷新管线：captcha 的刷新原因经 reason 传给 Host；
+        // auth 恢复经 prepareRequest 包装刷新函数注入 expectedAccountScope 校验。
         reason: captchaRetry.takeReason(),
-        request: attemptRequest,
+        request: authRetry.prepareRequest(attemptRequest),
         resolveModel: input.resolveModel,
       });
       const anthropicMetadataUserId = await resolveAnthropicRequestMetadataUserId({
@@ -370,6 +383,7 @@ export async function* runStreamText(input: {
             requestHeaderCount,
             requestHeaders,
             repairThinkingSignatureRejection,
+            canRecoverProjectToken: (error) => authRetry.canRecoverProjectToken(error),
             retryBudgetAttempt,
             startedAt,
             statusContext,
@@ -501,6 +515,8 @@ export async function* runStreamText(input: {
             } satisfies Record<string, unknown>),
         });
         if (hiddenProviderBusinessError) {
+          if (isRequestVerificationRejection(hiddenProviderBusinessError))
+            throw hiddenProviderBusinessError;
           const failure = classifyModelFailure(
             hiddenProviderBusinessError,
             input.request.abortSignal,
@@ -519,12 +535,21 @@ export async function* runStreamText(input: {
         if (isSuspiciousStreamDiagnostics(diagnostics)) {
           // 403 JSON 等业务错误有时不会让 AI SDK 抛出 error chunk，流会以空 completion 结束；
           // 若不在 adapter 层终止，core 会误报 “Model returned no text...”。
-          const streamEndedWithoutOutputError = detectProviderBusinessFinishError({
-            providerId: String(statusContext.providerId),
-            providerKind: statusContext.providerKind,
-            source: diagnostics.lastErrorChunk ?? diagnostics.lastFinishChunk,
-          });
+          const streamEndedWithoutOutputError =
+            detectProviderBusinessFinishError({
+              providerId: String(statusContext.providerId),
+              providerKind: statusContext.providerKind,
+              source: diagnostics.lastErrorChunk ?? diagnostics.lastFinishChunk,
+            }) ??
+            createRequestVerificationEmptyStreamError({
+              accountMode: resolved.accountAccess?.mode,
+              headers: resolved.headers,
+              providerId: String(statusContext.providerId),
+              providerKind: resolved.providerKind,
+            });
           if (streamEndedWithoutOutputError) {
+            if (isRequestVerificationRejection(streamEndedWithoutOutputError))
+              throw streamEndedWithoutOutputError;
             const failure = classifyModelFailure(
               streamEndedWithoutOutputError,
               input.request.abortSignal,
@@ -747,7 +772,9 @@ export async function* runStreamText(input: {
       if (retryWithRepairedHistory) {
         statusContext = {
           ...statusContext,
-          maxAttempts: statusMaxAttempts(1),
+          maxAttempts: statusMaxAttempts(
+            1 + authRetry.extraAttempts + captchaRetry.extraAttempts,
+          ),
         };
       }
       const classified = classifyModelFailure(error, input.request.abortSignal);
@@ -795,6 +822,23 @@ export async function* runStreamText(input: {
           diagnostics.lastErrorChunk || diagnostics.lastFinishChunk,
         ),
       });
+      const retryWithAuth = authRetry.claim(
+        error,
+        options === undefined ||
+          emittedRetryBoundaryEvent ||
+          streamOutputCommitted ||
+          (input.request.preserveProviderStreamBoundaries === true &&
+            failureDecision.context?.streamFailurePhase === "response_body"),
+      );
+      if (retryWithAuth) {
+        failureDecision.canRetry = true;
+        statusContext = {
+          ...statusContext,
+          maxAttempts: statusMaxAttempts(
+            Number(signatureRepairAttempted) + authRetry.extraAttempts + captchaRetry.extraAttempts,
+          ),
+        };
+      }
       // off-peak 排队 429 豁免预算：不消耗 maxAttempts，SSE 可见输出边界仍适用。
       if (offPeak?.kind === "queued" && !emittedRetryBoundaryEvent) {
         failureDecision.canRetry = true;
@@ -816,7 +860,9 @@ export async function* runStreamText(input: {
         failureDecision.canRetry = true;
         statusContext = {
           ...statusContext,
-          maxAttempts: statusMaxAttempts(Number(signatureRepairAttempted) + captchaRetry.extraAttempts),
+          maxAttempts: statusMaxAttempts(
+            Number(signatureRepairAttempted) + authRetry.extraAttempts + captchaRetry.extraAttempts,
+          ),
         };
       }
 
@@ -867,9 +913,9 @@ export async function* runStreamText(input: {
         statusSink: input.statusSink,
       });
 
-      if (captchaRetryClaimed) {
-        // 验证码被拒：立即重试一次（不退避）。下一次 attempt 的刷新原因已由 takeReason()
-        // 标记为 captcha-retry，Host/渲染端会现跑一次新验证并回传新的验证码头。
+      if (captchaRetryClaimed || retryWithAuth) {
+        // 验证码/账号鉴权被拒：立即重试一次（不退避）。验证码路径的下一次 attempt 刷新原因
+        // 已由 takeReason() 标记为 captcha-retry，Host/渲染端会现跑一次新验证并回传新的验证码头。
         await publishRetryScheduledStatus(
           input,
           statusContext,
@@ -885,7 +931,6 @@ export async function* runStreamText(input: {
         );
         continue;
       }
-
       if (retryWithRepairedHistory) {
         await publishRetryScheduledStatus(
           input,
@@ -1133,6 +1178,7 @@ async function handleStreamChunk(input: {
   };
   pendingRetrySafeEvents: ModelStreamEvent[];
   repairThinkingSignatureRejection: (error: unknown) => boolean;
+  canRecoverProjectToken: (error: unknown) => boolean;
   retryBudgetAttempt: number;
   requestHeaderCount: number;
   requestHeaders: Record<string, string>;
@@ -1326,6 +1372,7 @@ async function handleStreamErrorEvent(
   input: Parameters<typeof handleStreamChunk>[0],
   error: unknown,
 ): Promise<Awaited<ReturnType<typeof handleStreamChunk>>> {
+  if (isRequestVerificationRejection(error) || input.canRecoverProjectToken(error)) throw error;
   const retryWithRepairedHistory =
     !input.emittedRetryBoundaryEvent && input.repairThinkingSignatureRejection(error);
   const statusContext = retryWithRepairedHistory
@@ -1692,11 +1739,13 @@ function statusPublishOptions(
   input: {
     logger?: Logger;
     request: AiSdkModelTextRequest;
+    resolved?: Pick<ResolvedAiSdkModel, "requestObservations">;
     statusSink?: ModelStatusSink;
   },
   admission?: AttemptAdmission,
 ) {
   return {
+    requestObservations: input.resolved?.requestObservations,
     logger: input.logger,
     requestStatusSink: input.request.statusSink,
     statusSink: input.statusSink,

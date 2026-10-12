@@ -3,17 +3,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { ZCodeTaskMeta } from "@zcode/shared";
 import { toast } from "@/components/ui/toast.js";
-import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu.js";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu.js";
 import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
 import { useLocalWorkspaceScopes } from "@/hooks/useLocalWorkspaceScopes.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { getTaskTimelineGroupMessage, groupTaskTimelineItems } from "@/lib/taskTimelineGroups.js";
+import {
+  getTaskTimelineGroupMessage,
+  groupTaskTimelineItems,
+} from "@/lib/taskTimelineGroups.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
 import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
 import { buildWorkspaceServiceLookup } from "@/lib/workspaceServiceResolver.js";
 import { logger } from "@/logger.js";
-import { MemoTaskItem, TaskListItemContextMenuContent } from "@/TaskListItem.js";
+import {
+  MemoTaskItem,
+  TaskListItemContextMenuContent,
+} from "@/TaskListItem.js";
 import { TaskListLoadingHint } from "@/TaskListLoadingHint.js";
 import { TaskListRemoteSyncHint } from "@/TaskListRemoteSyncHint.js";
 import { TaskRenameDialog } from "@/TaskRenameDialog.js";
@@ -24,7 +33,11 @@ import { useRemoteWorkspaceSessionStore } from "@/store/remoteWorkspaceSessionSt
 import type { WorkspaceTabState } from "@/store/tabStore.js";
 import { applyTaskQueryCacheMutation } from "@/store/taskQueryCacheStore.js";
 
-function buildTimelineItemKey(workspacePath: string, taskId: string, workspaceIdentity?: string) {
+function buildTimelineItemKey(
+  workspacePath: string,
+  taskId: string,
+  workspaceIdentity?: string,
+) {
   return `${buildTaskWorkspaceKey(workspacePath, workspaceIdentity)}:${taskId}`;
 }
 
@@ -47,6 +60,7 @@ export function WorkspaceTimelineTasksSection({
   groupByDate = true,
   taskRowVariant = "timeline",
   emptyMessage,
+  mobileActiveTaskKey,
   onSelectTask,
   onOpenDeveloperTools,
 }: {
@@ -58,6 +72,7 @@ export function WorkspaceTimelineTasksSection({
   groupByDate?: boolean;
   taskRowVariant?: "default" | "timeline";
   emptyMessage?: string;
+  mobileActiveTaskKey?: string | null;
   onSelectTask: (
     targetWorkspacePath: string,
     taskId: string,
@@ -71,7 +86,9 @@ export function WorkspaceTimelineTasksSection({
   const scopedWorkspaceTabs = useLocalWorkspaceScopes({
     workspaceTabs,
   });
-  const sessionsById = useRemoteWorkspaceSessionStore((state) => state.sessionsById);
+  const sessionsById = useRemoteWorkspaceSessionStore(
+    (state) => state.sessionsById,
+  );
   const sessionIdByWorkspaceIdentity = useRemoteWorkspaceSessionStore(
     (state) => state.sessionIdByWorkspaceIdentity,
   );
@@ -86,17 +103,25 @@ export function WorkspaceTimelineTasksSection({
     }),
     [sessionIdByWorkspaceIdentity, sessionIdByWorkspacePath, sessionsById],
   );
-  const removeTaskState = useZCodeSessionStore((state) => state.removeTaskState);
+  const removeTaskState = useZCodeSessionStore(
+    (state) => state.removeTaskState,
+  );
   const upsertOptimisticTaskListItem = useZCodeSessionStore(
     (state) => state.upsertOptimisticTaskListItem,
   );
   const removeOptimisticTaskListItem = useZCodeSessionStore(
     (state) => state.removeOptimisticTaskListItem,
   );
-  const setTaskUnreadIndicator = useZCodeSessionStore((state) => state.setTaskUnreadIndicator);
-  const [pendingArchiveItemKey, setPendingArchiveItemKey] = useState<string | null>(null);
+  const setTaskUnreadIndicator = useZCodeSessionStore(
+    (state) => state.setTaskUnreadIndicator,
+  );
+  const [pendingArchiveItemKey, setPendingArchiveItemKey] = useState<
+    string | null
+  >(null);
   const [renamingItemKey, setRenamingItemKey] = useState<string | null>(null);
-  const [contextMenuItemKey, setContextMenuItemKey] = useState<string | null>(null);
+  const [contextMenuItemKey, setContextMenuItemKey] = useState<string | null>(
+    null,
+  );
   const [renameDraft, setRenameDraft] = useState("");
   // timeline 不应沿用 10 条首屏限制，和其它 sidebar 列表的 20 条基准保持一致。
   // 这里把首屏和每次“显示更多”的阶梯统一成 20，避免用户误以为列表只加载到 10/20 就结束。
@@ -112,7 +137,9 @@ export function WorkspaceTimelineTasksSection({
   const upsertOptimisticTaskListItemRef = useRef(upsertOptimisticTaskListItem);
   const removeOptimisticTaskListItemRef = useRef(removeOptimisticTaskListItem);
   const setTaskUnreadIndicatorRef = useRef(setTaskUnreadIndicator);
-  const taskItemHandlersByKeyRef = useRef(new Map<string, TimelineTaskItemHandlers>());
+  const taskItemHandlersByKeyRef = useRef(
+    new Map<string, TimelineTaskItemHandlers>(),
+  );
   pendingArchiveItemKeyRef.current = pendingArchiveItemKey;
   renamingItemKeyRef.current = renamingItemKey;
   taskSortByRef.current = taskSortBy;
@@ -123,14 +150,25 @@ export function WorkspaceTimelineTasksSection({
   removeOptimisticTaskListItemRef.current = removeOptimisticTaskListItem;
   setTaskUnreadIndicatorRef.current = setTaskUnreadIndicator;
   const workspaceServiceLookup = useMemo(
-    () => buildWorkspaceServiceLookup(workspaceTabs, baseServices, serviceResolverState),
+    () =>
+      buildWorkspaceServiceLookup(
+        workspaceTabs,
+        baseServices,
+        serviceResolverState,
+      ),
     [baseServices, serviceResolverState, workspaceTabs],
   );
-  const activeWorkspaceKey = buildTaskWorkspaceKey(activeWorkspacePath, activeWorkspaceIdentity);
+  const activeWorkspaceKey = buildTaskWorkspaceKey(
+    activeWorkspacePath,
+    activeWorkspaceIdentity,
+  );
   const workspaceTabsSignature = useMemo(
     () =>
       workspaceTabs
-        .map((tab) => `${tab.workspaceIdentity?.trim() || tab.workspacePath}:${tab.workspacePath}`)
+        .map(
+          (tab) =>
+            `${tab.workspaceIdentity?.trim() || tab.workspacePath}:${tab.workspacePath}`,
+        )
         .join("|"),
     [workspaceTabs],
   );
@@ -163,8 +201,13 @@ export function WorkspaceTimelineTasksSection({
     () => [
       ...new Set(
         workspaceTabs
-          .filter((tab) => tab.workspaceIdentity || tab.remoteTarget || tab.remoteSessionId)
-          .map((tab) => buildTaskWorkspaceKey(tab.workspacePath, tab.workspaceIdentity)),
+          .filter(
+            (tab) =>
+              tab.workspaceIdentity || tab.remoteTarget || tab.remoteSessionId,
+          )
+          .map((tab) =>
+            buildTaskWorkspaceKey(tab.workspacePath, tab.workspaceIdentity),
+          ),
       ),
     ],
     [workspaceTabs],
@@ -184,7 +227,11 @@ export function WorkspaceTimelineTasksSection({
     const nextItemByKey = new Map<string, ZCodeTaskMeta>();
     for (const item of items) {
       nextItemByKey.set(
-        buildTimelineItemKey(item.workspacePath, item.taskId, item.workspaceIdentity),
+        buildTimelineItemKey(
+          item.workspacePath,
+          item.taskId,
+          item.workspaceIdentity,
+        ),
         item,
       );
     }
@@ -194,28 +241,33 @@ export function WorkspaceTimelineTasksSection({
   const workspaceServiceLookupRef = useRef(workspaceServiceLookup);
   itemByKeyRef.current = itemByKey;
   workspaceServiceLookupRef.current = workspaceServiceLookup;
-  const timelineGroups = useMemo(() => {
-    const visibleItems = items.filter((item) =>
-      workspaceServiceLookup.has(buildTaskWorkspaceKey(item.workspacePath, item.workspaceIdentity)),
-    );
-    if (!groupByDate) {
-      return [{ key: "all", label: null, items: visibleItems }];
-    }
-    return groupTaskTimelineItems(items, {
-      sortBy: taskSortBy,
-      now: Date.now(),
-      locale,
-    })
-      .map((group) => ({
-        ...group,
-        items: group.items.filter((item) =>
-          workspaceServiceLookup.has(
-            buildTaskWorkspaceKey(item.workspacePath, item.workspaceIdentity),
-          ),
+  const timelineGroups = useMemo(
+    () => {
+      const visibleItems = items.filter((item) =>
+        workspaceServiceLookup.has(
+          buildTaskWorkspaceKey(item.workspacePath, item.workspaceIdentity),
         ),
-      }))
-      .filter((group) => group.items.length > 0);
-  }, [groupByDate, items, locale, taskSortBy, workspaceServiceLookup]);
+      );
+      if (!groupByDate) {
+        return [{ key: "all", label: null, items: visibleItems }];
+      }
+      return groupTaskTimelineItems(items, {
+        sortBy: taskSortBy,
+        now: Date.now(),
+        locale,
+      })
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) =>
+            workspaceServiceLookup.has(
+              buildTaskWorkspaceKey(item.workspacePath, item.workspaceIdentity),
+            ),
+          ),
+        }))
+        .filter((group) => group.items.length > 0);
+    },
+    [groupByDate, items, locale, taskSortBy, workspaceServiceLookup],
+  );
   const remoteTotal = remoteWorkspaceKeys.reduce(
     (sum, workspaceKey) =>
       sum +
@@ -243,7 +295,9 @@ export function WorkspaceTimelineTasksSection({
   const currentLimitFilled = sortedItems.length >= visibleTaskLimit;
   // 远端/本地 hasMore 偶尔会在下一轮请求完成前保持旧值。
   // 如果当前已加载数量没有填满 limit，说明这轮已经到底了，不能继续显示 show more。
-  const canLoadMore = loading ? hasKnownMore : currentLimitFilled && hasKnownMore;
+  const canLoadMore = loading
+    ? hasKnownMore
+    : currentLimitFilled && hasKnownMore;
 
   useEffect(() => {
     setVisibleTaskLimit(collapsedLimit);
@@ -288,7 +342,9 @@ export function WorkspaceTimelineTasksSection({
       // 远端数据跟 pinned 一样走独立 store，show more 时只把 limit 按 20 条阶梯增加，避免一次性拉全量。
       void useRemoteTimelineTaskStore.getState().refreshWorkspace({
         workspacePath: tab.workspacePath,
-        ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
+        ...(tab.workspaceIdentity
+          ? { workspaceIdentity: tab.workspaceIdentity }
+          : {}),
         zcodeTaskService: workspaceServices.services.zcodeTaskService,
         sortBy: taskSortBy,
         limit: visibleTaskLimit,
@@ -335,17 +391,31 @@ export function WorkspaceTimelineTasksSection({
         .archiveTask({
           taskId: item.taskId,
           workspacePath: item.workspacePath,
-          ...(item.workspaceIdentity ? { workspaceIdentity: item.workspaceIdentity } : {}),
+          ...(item.workspaceIdentity
+            ? { workspaceIdentity: item.workspaceIdentity }
+            : {}),
         })
         .then((meta) => {
-          removeTaskStateRef.current(item.workspacePath, item.taskId, item.workspaceIdentity);
+          removeTaskStateRef.current(
+            item.workspacePath,
+            item.taskId,
+            item.workspaceIdentity,
+          );
           if (item.workspaceIdentity) {
             useRemoteTimelineTaskStore
               .getState()
-              .removeTask(item.workspacePath, item.taskId, item.workspaceIdentity);
+              .removeTask(
+                item.workspacePath,
+                item.taskId,
+                item.workspaceIdentity,
+              );
             useRemotePinnedTaskStore
               .getState()
-              .removeTask(item.workspacePath, item.taskId, item.workspaceIdentity);
+              .removeTask(
+                item.workspacePath,
+                item.taskId,
+                item.workspaceIdentity,
+              );
           }
           applyTaskQueryCacheMutation({
             previousTask: item,
@@ -360,13 +430,21 @@ export function WorkspaceTimelineTasksSection({
     },
     [getCurrentItemContext],
   );
-  const selectTimelineItem = useCallback((itemKey: string) => {
-    const item = itemByKeyRef.current.get(itemKey);
-    if (!item) {
-      return;
-    }
-    onSelectTaskRef.current(item.workspacePath, item.taskId, item.workspaceIdentity, item.unreadAt);
-  }, []);
+  const selectTimelineItem = useCallback(
+    (itemKey: string) => {
+      const item = itemByKeyRef.current.get(itemKey);
+      if (!item) {
+        return;
+      }
+      onSelectTaskRef.current(
+        item.workspacePath,
+        item.taskId,
+        item.workspaceIdentity,
+        item.unreadAt,
+      );
+    },
+    [],
+  );
   const archiveTimelineItemInline = useCallback(
     (event: ReactMouseEvent, itemKey: string) => {
       event.stopPropagation();
@@ -405,7 +483,9 @@ export function WorkspaceTimelineTasksSection({
         .setTaskPinned({
           taskId: item.taskId,
           workspacePath: item.workspacePath,
-          ...(item.workspaceIdentity ? { workspaceIdentity: item.workspaceIdentity } : {}),
+          ...(item.workspaceIdentity
+            ? { workspaceIdentity: item.workspaceIdentity }
+            : {}),
           pinned,
         })
         .then((meta) => {
@@ -418,7 +498,11 @@ export function WorkspaceTimelineTasksSection({
             useRemotePinnedTaskStore.getState().upsertTask(meta);
             useRemoteTimelineTaskStore
               .getState()
-              .removeTask(item.workspacePath, item.taskId, item.workspaceIdentity);
+              .removeTask(
+                item.workspacePath,
+                item.taskId,
+                item.workspaceIdentity,
+              );
           }
           applyTaskQueryCacheMutation({
             previousTask: item,
@@ -431,8 +515,14 @@ export function WorkspaceTimelineTasksSection({
           if (item.workspaceIdentity && pinned) {
             useRemotePinnedTaskStore
               .getState()
-              .removeTask(item.workspacePath, item.taskId, item.workspaceIdentity);
-            useRemoteTimelineTaskStore.getState().upsertTask(item, taskSortByRef.current);
+              .removeTask(
+                item.workspacePath,
+                item.taskId,
+                item.workspaceIdentity,
+              );
+            useRemoteTimelineTaskStore
+              .getState()
+              .upsertTask(item, taskSortByRef.current);
           }
           applyTaskQueryCacheMutation({
             previousTask: item,
@@ -452,11 +542,14 @@ export function WorkspaceTimelineTasksSection({
     },
     [getCurrentItemContext],
   );
-  const startTimelineItemRename = useCallback((itemKey: string, currentTitle: string) => {
-    setPendingArchiveItemKey(null);
-    setRenamingItemKey(itemKey);
-    setRenameDraft(currentTitle ?? "");
-  }, []);
+  const startTimelineItemRename = useCallback(
+    (itemKey: string, currentTitle: string) => {
+      setPendingArchiveItemKey(null);
+      setRenamingItemKey(itemKey);
+      setRenameDraft(currentTitle ?? "");
+    },
+    [],
+  );
   const archiveTimelineItemFromMenu = useCallback(
     (itemKey: string) => {
       setPendingArchiveItemKey(null);
@@ -476,7 +569,9 @@ export function WorkspaceTimelineTasksSection({
         .setTaskUnread({
           taskId: item.taskId,
           workspacePath: item.workspacePath,
-          ...(item.workspaceIdentity ? { workspaceIdentity: item.workspaceIdentity } : {}),
+          ...(item.workspaceIdentity
+            ? { workspaceIdentity: item.workspaceIdentity }
+            : {}),
           unread: true,
         })
         .then((meta) => {
@@ -486,9 +581,15 @@ export function WorkspaceTimelineTasksSection({
             true,
             item.workspaceIdentity,
           );
-          upsertOptimisticTaskListItemRef.current(item.workspacePath, meta, item.workspaceIdentity);
+          upsertOptimisticTaskListItemRef.current(
+            item.workspacePath,
+            meta,
+            item.workspaceIdentity,
+          );
           if (item.workspaceIdentity) {
-            useRemoteTimelineTaskStore.getState().upsertTask(meta, taskSortByRef.current);
+            useRemoteTimelineTaskStore
+              .getState()
+              .upsertTask(meta, taskSortByRef.current);
           }
           applyTaskQueryCacheMutation({
             previousTask: item,
@@ -554,10 +655,15 @@ export function WorkspaceTimelineTasksSection({
       toggleTimelineItemPin,
     ],
   );
-  const contextMenuItem = contextMenuItemKey ? findItemByKey(contextMenuItemKey) : null;
+  const contextMenuItem = contextMenuItemKey
+    ? findItemByKey(contextMenuItemKey)
+    : null;
   const contextMenuWorkspaceServices = contextMenuItem
     ? workspaceServiceLookup.get(
-        buildTaskWorkspaceKey(contextMenuItem.workspacePath, contextMenuItem.workspaceIdentity),
+        buildTaskWorkspaceKey(
+          contextMenuItem.workspacePath,
+          contextMenuItem.workspaceIdentity,
+        ),
       )
     : null;
 
@@ -643,13 +749,21 @@ export function WorkspaceTimelineTasksSection({
               .renameTask({
                 taskId: item.taskId,
                 workspacePath: item.workspacePath,
-                ...(item.workspaceIdentity ? { workspaceIdentity: item.workspaceIdentity } : {}),
+                ...(item.workspaceIdentity
+                  ? { workspaceIdentity: item.workspaceIdentity }
+                  : {}),
                 title: normalizedTitle,
               })
               .then((meta) => {
-                upsertOptimisticTaskListItem(item.workspacePath, meta, item.workspaceIdentity);
+                upsertOptimisticTaskListItem(
+                  item.workspacePath,
+                  meta,
+                  item.workspaceIdentity,
+                );
                 if (item.workspaceIdentity) {
-                  useRemoteTimelineTaskStore.getState().upsertTask(meta, taskSortBy);
+                  useRemoteTimelineTaskStore
+                    .getState()
+                    .upsertTask(meta, taskSortBy);
                 }
                 applyTaskQueryCacheMutation({
                   previousTask: item,
@@ -675,12 +789,17 @@ export function WorkspaceTimelineTasksSection({
         <ContextMenuTrigger asChild>
           <ul className="space-y-1">
             {timelineGroups.map((group) => {
-              const labelMessage = group.label ? getTaskTimelineGroupMessage(group.label) : null;
+              const labelMessage = group.label
+                ? getTaskTimelineGroupMessage(group.label)
+                : null;
               return (
                 <li key={group.key} className="space-y-0.5">
                   {labelMessage ? (
                     <div className="px-3 pt-2 pb-1 text-ui-base font-medium text-foreground-subtle">
-                      {intl.formatMessage({ id: labelMessage.id }, labelMessage.values)}
+                      {intl.formatMessage(
+                        { id: labelMessage.id },
+                        labelMessage.values,
+                      )}
                     </div>
                   ) : null}
                   <ul className="space-y-0.5">
@@ -691,7 +810,10 @@ export function WorkspaceTimelineTasksSection({
                         item.workspaceIdentity,
                       );
                       const workspaceServices = workspaceServiceLookup.get(
-                        buildTaskWorkspaceKey(item.workspacePath, item.workspaceIdentity),
+                        buildTaskWorkspaceKey(
+                          item.workspacePath,
+                          item.workspaceIdentity,
+                        ),
                       );
                       if (!workspaceServices) {
                         return null;
@@ -706,19 +828,27 @@ export function WorkspaceTimelineTasksSection({
                           isPinned={false}
                           variant={taskRowVariant}
                           isActive={
-                            // timeline 是跨 workspace 视图，active 判断必须使用 workspaceKey，避免同路径远端串高亮。
-                            buildTaskWorkspaceKey(item.workspacePath, item.workspaceIdentity) ===
-                              activeWorkspaceKey && item.taskId === activeTaskId
+                            // Bugfix: timeline 是跨 workspace 视图，active 判断必须使用 workspaceKey，避免同路径远端串高亮。
+                            buildTaskWorkspaceKey(
+                              item.workspacePath,
+                              item.workspaceIdentity,
+                            ) === activeWorkspaceKey &&
+                            item.taskId === activeTaskId
                           }
+                          isMobileActive={mobileActiveTaskKey === itemKey}
                           onSelectTask={handlers.onSelectTask}
                           onArchiveTaskInline={handlers.onArchiveTaskInline}
                           onCancelArchiveConfirm={handleCancelArchiveConfirm}
-                          isArchiveConfirming={pendingArchiveItemKey === itemKey}
+                          isArchiveConfirming={
+                            pendingArchiveItemKey === itemKey
+                          }
                           onTogglePinTask={handlers.onTogglePinTask}
                           onStartRenameTask={handlers.onStartRenameTask}
                           onArchiveTask={handlers.onArchiveTask}
                           onMarkTaskAsUnread={handlers.onMarkTaskAsUnread}
-                          onOpenTaskContextMenu={handlers.onOpenTaskContextMenu}
+                          onOpenTaskContextMenu={
+                            handlers.onOpenTaskContextMenu
+                          }
                           intl={intl}
                         />
                       );
@@ -729,7 +859,9 @@ export function WorkspaceTimelineTasksSection({
             })}
           </ul>
         </ContextMenuTrigger>
-        {contextMenuItem && contextMenuWorkspaceServices && contextMenuItemKey ? (
+        {contextMenuItem &&
+        contextMenuWorkspaceServices &&
+        contextMenuItemKey ? (
           <TaskListItemContextMenuContent
             workspacePath={contextMenuItem.workspacePath}
             remoteSessionId={contextMenuWorkspaceServices.remoteSessionId}
@@ -808,7 +940,9 @@ export function WorkspaceTimelineTasksSection({
                         contextMenuItem.taskId,
                         contextMenuItem.workspaceIdentity,
                       );
-                    useRemoteTimelineTaskStore.getState().upsertTask(contextMenuItem, taskSortBy);
+                    useRemoteTimelineTaskStore
+                      .getState()
+                      .upsertTask(contextMenuItem, taskSortBy);
                   }
                   applyTaskQueryCacheMutation({
                     previousTask: contextMenuItem,
@@ -898,7 +1032,9 @@ export function WorkspaceTimelineTasksSection({
                     contextMenuItem.workspaceIdentity,
                   );
                   if (contextMenuItem.workspaceIdentity) {
-                    useRemoteTimelineTaskStore.getState().upsertTask(meta, taskSortBy);
+                    useRemoteTimelineTaskStore
+                      .getState()
+                      .upsertTask(meta, taskSortBy);
                   }
                   applyTaskQueryCacheMutation({
                     previousTask: contextMenuItem,

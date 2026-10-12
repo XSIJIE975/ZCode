@@ -1,3 +1,4 @@
+import { withoutRequestVerificationHeaders } from "@zcode/shared";
 /* eslint-disable max-lines -- AI SDK 模型执行装配集中维护 provider factory、鉴权和网络错误适配，拆分会让状态同步更脆弱。 */
 // ============================================================
 // Vercel AI SDK model execution
@@ -17,16 +18,23 @@ import {
   type ModelId,
   type ModelProviderId,
   type ModelRequestAuth,
+  type ProviderEndpointRoutingPort,
 } from "@zcode/contracts";
 import type { RegistryProviderConfig } from "@zcode/provider";
 import { withOpenRouterAttributionHeaders } from "@zcode/shared";
 import { createAnthropicCompatFetch } from "./anthropic-stream-compat.js";
+import { createModelRequestSecurityState } from "./request-security-edition/index.js";
+import type { ModelRequestSecurityState, ModelRequestSecurityPort } from "./request-security.js";
 import { createOpenAIResponsesJsonCompatFetch } from "./openai-responses-json-compat.js";
 import { createModelOptionMapFetch, type RawRequestBodyCapture } from "./model-option-map-fetch.js";
 import { createNetworkProxyFetch } from "../network/proxy-fetch.js";
-import { createOfficialCodingPlanGatewayFetch } from "./official-coding-plan-gateway.js";
+import { createProviderEndpointRoutingFetch } from "./provider-endpoint-routing-fetch.js";
 import { normalizeModelTlsFailure } from "./failure-tls.js";
-import { mergeModelRequestHeaders } from "./model-request-headers.js";
+import {
+  mergeModelRequestHeaders,
+  withoutModelAuthHeaders,
+  withoutModelQuerySourceHeader,
+} from "./model-request-headers.js";
 import {
   AiSdkClientRequestSigningState,
   ClientRequestSigningManager,
@@ -66,6 +74,7 @@ export interface AiSdkModelExecutionConfig {
   defaultHeaders?: Readonly<Record<string, string>>;
   /** 官方 Coding Plan 客户端签名（额度折算的服务端识别前提）；缺省不签名。 */
   codingPlanSignature?: CodingPlanSignatureRuntimeConfig;
+  endpointRoutingPort?: ProviderEndpointRoutingPort;
   env?: EnvRecord;
   network?: AiSdkNetworkConfig;
 }
@@ -73,6 +82,7 @@ export interface AiSdkModelExecutionConfig {
 export interface AiSdkModelExecutionOptions {
   /** 跨 Execution 复用的签名状态（gate / 私钥缓存）；缺省各 Execution 独立缓存。 */
   clientRequestSigningState?: AiSdkClientRequestSigningState;
+  requestSecurityState?: ModelRequestSecurityState;
   logger?: Logger;
   transport?: ProviderFetch;
 }
@@ -94,6 +104,7 @@ export interface AiSdkResolvedModel {
   rawRequestBodyCapture?: RawRequestBodyCapture;
   /** 本 Execution 的客户端签名观测记录（按请求 x-request-id 归因）。 */
   clientSigningObservations?: ClientSigningObservationStore;
+  requestObservations?: ModelRequestSecurityPort;
 }
 
 export interface AiSdkBoundModelResolution {
@@ -110,6 +121,7 @@ type ProviderCode = string | number;
 
 export interface ProviderBusinessErrorFetchOptions {
   caCertFile?: string;
+  endpointRoutingPort?: ProviderEndpointRoutingPort;
   env?: EnvRecord;
   providerId: string;
   providerKind: AiSdkProviderKind;
@@ -181,6 +193,7 @@ export class AiSdkModelExecution {
   private readonly defaultHeaders: Record<string, string>;
   private readonly network: AiSdkNetworkConfig;
   private readonly codingPlanSignature?: CodingPlanSignatureRuntimeConfig;
+  private readonly endpointRoutingPort?: ProviderEndpointRoutingPort;
   private readonly logger?: Logger;
   private readonly baseTransport?: ProviderFetch;
   private readonly clientRequestSigningState?: AiSdkClientRequestSigningState;
@@ -190,12 +203,14 @@ export class AiSdkModelExecution {
   private readonly signingFeatureGates = new Map<string, CodingPlanSignatureFeatureGate>();
   private readonly clientSigningObservations = new ClientSigningObservationStore();
   private readonly accessModeUnsignedLoggedProviders = new Set<string>();
+  private readonly requestSecurity: ModelRequestSecurityPort;
 
   constructor(config: AiSdkModelExecutionConfig = {}, options: AiSdkModelExecutionOptions = {}) {
     this.env = config.env ?? process.env;
     this.defaultHeaders = { ...config.defaultHeaders };
     this.network = { ...config.network };
     this.codingPlanSignature = config.codingPlanSignature;
+    this.endpointRoutingPort = config.endpointRoutingPort;
     this.logger = options.logger;
     this.baseTransport = options.transport;
     this.clientRequestSigningState = options.clientRequestSigningState;
@@ -205,6 +220,12 @@ export class AiSdkModelExecution {
       keyCache: this.clientRequestSigningState?.keyCache,
       observer: (input) => this.observeClientSigning(input),
     });
+    // 上游 request-security 框架（开源版为中性桩：protectTransport 原样透传、无观测）。
+    // 定制签名走独立的 signingManager 链路，二者并存互不干扰；将来上游发布真实
+    // security edition 时再评估合并。
+    this.requestSecurity = (
+      options.requestSecurityState ?? createModelRequestSecurityState()
+    ).createExecution({ logger: options.logger });
   }
 
   /**
@@ -400,6 +421,7 @@ export class AiSdkModelExecution {
       optionValues,
       rawRequestBodyCapture,
       snapshot.supportsJsonSchemaOutput,
+      snapshot.providerConfig.access?.type === "zhipu-account" ? requestAuth?.apiKeyId : undefined,
     );
     return {
       baseURL: providerConfig.baseURL,
@@ -411,6 +433,7 @@ export class AiSdkModelExecution {
       providerOptions: providerConfig.providerOptions,
       rawRequestBodyCapture,
       clientSigningObservations: this.clientSigningObservations,
+      requestObservations: this.requestSecurity,
     };
   }
 
@@ -421,17 +444,33 @@ export class AiSdkModelExecution {
     optionValues: ModelOptionValues | undefined,
     rawRequestBodyCapture: RawRequestBodyCapture,
     supportsJsonSchemaOutput: boolean,
+    apiKeyId?: string,
   ): LanguageModelFactory {
     const apiKey = this.resolveApiKey(providerConfig);
-    const headers = providerConfig.headers;
-    const providerTransport = this.resolveProviderTransport(providerId);
+    // SDK 会合并 factory 默认 header；必须在这里去掉静态来源，才能保证缺失时真正省略。
+    const headers = withoutModelQuerySourceHeader(providerConfig.headers);
+    const networkTransport = this.resolveProviderTransport(providerId);
+    // ID 属于当前 attempt，不能放入按 Provider 缓存的 transport，避免切换账号后串用。
+    const providerTransport = this.endpointRoutingPort
+      ? createProviderEndpointRoutingFetch({
+          fetch: networkTransport,
+          routingPort: this.endpointRoutingPort,
+          apiKeyId,
+        })
+      : networkTransport;
+    // 上游 request-security 接缝（开源版中性桩：原样透传）；保留调用以维持上游结构。
+    const requestTransport = this.requestSecurity.protectTransport({
+      providerId,
+      providerConfig,
+      transport: providerTransport,
+    });
     // 官方 Coding Plan 链路要求客户端签名（服务端据此应用额度折算计费）；
     // 官方域上明确免签名的 access（start-plan / off-peak）保持未签名并留观测；
     // 其余 provider 与既有行为一致，完全不进入签名层。
     // 进入签名层的 provider 必须直连 provider 端点：发行版 3.14.3 的签名请求
     // 直接发往注册表下发的 baseURL（其动态 proxyEndpoint 映射当前为空），
-    // 签名头由 bigmodel/z.ai 端点侧校验计费；若再经开源版 ultra 网关改写，
-    // 计费路径与发行版不一致，额度折算不保证生效。
+    // 签名头由 bigmodel/z.ai 端点侧校验计费；若再经网关改写（旧 ultra 网关或
+    // 上游 endpointRouting 端口），计费路径与发行版不一致，额度折算不保证生效。
     const businessFetch: ProviderFetch = requiresClientRequestSigning(providerConfig)
       ? this.resolveClientSigningFetch(
           providerId,
@@ -440,8 +479,8 @@ export class AiSdkModelExecution {
           this.resolveProviderDirectTransport(providerId),
         )
       : isOfficialProviderHost(providerConfig.baseURL)
-        ? this.createAccessModeUnsignedFetch(providerId, providerTransport)
-        : providerTransport;
+        ? this.createAccessModeUnsignedFetch(providerId, requestTransport)
+        : requestTransport;
     const fetch = createProviderBusinessErrorFetch({
       fetch: businessFetch,
       providerId,
@@ -505,17 +544,15 @@ export class AiSdkModelExecution {
     if (current) {
       return current;
     }
-    // 官方 Coding Plan 端点先替换为平台网关端点，再进入用户 HTTP 代理 fetch，
-    // httpProxy / noProxy 按实际发送地址判定。
-    const transport = createProviderTransportFetch({
+    const networkTransport = createProviderProxyFetch({
       caCertFile: this.network.caCertFile,
       env: this.env,
       fetch: this.baseTransport,
       httpProxy: this.network.httpProxy,
       noProxy: this.network.noProxy,
     });
-    this.providerTransports.set(providerId, transport);
-    return transport;
+    this.providerTransports.set(providerId, networkTransport);
+    return networkTransport;
   }
 
   /**
@@ -697,15 +734,23 @@ function applyModelRequestAuth(
   requestAuth: ModelRequestAuth | undefined,
 ): AiSdkProviderConfig {
   if (!requestAuth) return providerConfig;
+  // 验证码头单次有效，合并新鉴权材料前必须剥掉上一轮的残留（复用旧 param 会触发 F008）。
   const headersWithoutStaleCaptcha = Object.fromEntries(
     Object.entries(providerConfig.headers ?? {}).filter(
       ([name]) => !STALE_CAPTCHA_VERIFY_HEADERS.has(name.toLowerCase()),
     ),
   );
+  // 上游 verification 桩的清理当前是 no-op；保留调用维持上游结构。
+  const staticHeaders = withoutRequestVerificationHeaders(headersWithoutStaleCaptcha);
+  // 账号动态身份头必须先清理静态认证头，避免 SDK 优先使用旧凭据。
+  const headers =
+    providerConfig.access.type === "zhipu-account"
+      ? withoutModelAuthHeaders(staticHeaders)
+      : staticHeaders;
   return {
     ...providerConfig,
     ...(requestAuth.apiKey ? { apiKey: requestAuth.apiKey } : {}),
-    headers: mergeModelRequestHeaders(headersWithoutStaleCaptcha, requestAuth.headers),
+    headers: mergeModelRequestHeaders(headers, requestAuth.headers),
   };
 }
 
@@ -761,7 +806,13 @@ function normalizeAnthropicBaseURL(baseURL: string | undefined): string | undefi
 export function createProviderBusinessErrorFetch(
   options: ProviderBusinessErrorFetchOptions,
 ): ProviderFetch {
-  const baseFetch = createProviderProxyFetch(options);
+  const networkFetch = createProviderProxyFetch(options);
+  const baseFetch = options.endpointRoutingPort
+    ? createProviderEndpointRoutingFetch({
+        fetch: networkFetch,
+        routingPort: options.endpointRoutingPort,
+      })
+    : networkFetch;
 
   return async (input, init) => {
     let response: Response;
@@ -830,18 +881,6 @@ function createProviderProxyFetch(options: ProviderProxyFetchOptions): ProviderF
   // Node 的 global fetch 不会自动读取 HTTP_PROXY/http_proxy。
   // 模型 provider 和 MCP HTTP transport 都复用同一层 proxy-aware fetch，避免多套出口规则漂移。
   return createNetworkProxyFetch(options);
-}
-
-/**
- * 模型请求出口：官方 Coding Plan 端点经 ZCode 平台网关发送（做套餐权益校验等平台侧处理），
- * 其余 provider 直连；之后统一进入用户 HTTP 代理 fetch，httpProxy / noProxy 按实际发送地址判定。
- * 官方端点与网关端点的对应关系见 official-coding-plan-gateway.ts。
- */
-function createProviderTransportFetch(options: ProviderProxyFetchOptions): ProviderFetch {
-  return createOfficialCodingPlanGatewayFetch({
-    env: options.env,
-    fetch: createProviderProxyFetch(options),
-  });
 }
 
 async function detectProviderBusinessError(

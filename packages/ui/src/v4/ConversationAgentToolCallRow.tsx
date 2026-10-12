@@ -8,7 +8,7 @@ import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 import { SubagentStatsBar } from "@/v4/SessionStatsBar.js";
 import { runUserAction } from "@/lib/userActionTelemetry.js";
 
-function openSubagentSessionFromSummary({
+export function openSubagentSessionFromSummary({
   backgrounded: _backgrounded = false,
   childSessionId,
   context,
