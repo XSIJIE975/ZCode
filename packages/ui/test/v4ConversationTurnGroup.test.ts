@@ -51,6 +51,13 @@ vi.mock("@/hooks/useServices.js", () => ({
   useOptionalServices: () => ({
     highspeedCardService: { share: vi.fn() },
   }),
+  // 定制缝合：渲染树含 SubagentStatsBar（feature 侧统计条），其 useTaskUsageStats
+  // 读取 zcodeAgentService.getTaskTokenUsage；测试环境提供空实现即可。
+  useServices: () => ({
+    zcodeAgentService: {
+      getTaskTokenUsage: vi.fn(() => Promise.resolve(null)),
+    },
+  }),
 }));
 const topicInterrupted = vi.hoisted(() => vi.fn(() => false));
 vi.mock("@/v4/botGroupDeliveryContext.js", async (importOriginal) => ({

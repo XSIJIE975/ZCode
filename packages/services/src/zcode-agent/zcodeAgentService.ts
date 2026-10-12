@@ -2681,19 +2681,22 @@ export function createZCodeAgentService(
           });
           const accountAccess = parsed.data.accountAccess;
           if (accountRequestAuthService && accountAccess) {
-            if (isStartPlanCaptchaGatedAccess(accountAccess)) {
-              // Start Plan 走验证码门禁：skip 判定、渲染端验证、失败语义都在此分支收口。
-              void respondStartPlanRequestAuth({
-                key: pendingKey,
-                pending,
-              });
-              return;
-            }
-            // Account API Key / Team Runtime Key 不需要 Renderer 交互。Host 按 Model
-            // 固定的 Account Access 自动应答，避免后台任务和无 pane 会话依赖 UI 订阅者。
-            // 上游 verification 桩在开源版 requiresRequestVerification 恒为 false，
-            // 自动应答行为与我方一致；真实 edition 发布后此门会落回下方 Renderer 交互路径。
+            // 上游 edition 门在前：真实 edition 的 verification 要求走下方 Renderer 交互路径；
+            // 开源版桩 requiresRequestVerification 恒为 false，继续按能力判定定制门禁。
             if (!requiresRequestVerification(accountAccess)) {
+              if (isStartPlanCaptchaGatedAccess(accountAccess) && captchaVerificationPort) {
+                // Start Plan 走验证码门禁：skip 判定、渲染端验证、失败语义都在此分支收口。
+                // 仅在宿主注入了 captcha 执行端口（桌面 Main↔Renderer 桥）时启用；
+                // server/测试等无渲染端环境与上游一致按账号凭据自动应答，
+                // 避免无人可交互时 fail-closed 挡掉全部 Start Plan 请求。
+                void respondStartPlanRequestAuth({
+                  key: pendingKey,
+                  pending,
+                });
+                return;
+              }
+              // Account API Key / Team Runtime Key 不需要 Renderer 交互。Host 按 Model
+              // 固定的 Account Access 自动应答，避免后台任务和无 pane 会话依赖 UI 订阅者。
               void respondAccountRequestAuthWithoutInteraction({
                 key: pendingKey,
                 pending,
