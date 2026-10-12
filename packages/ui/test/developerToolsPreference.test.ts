@@ -50,7 +50,9 @@ describe("developerToolsPreference", () => {
     for (const value of ["0", "false", "off", "no"]) {
       expect(isDeveloperToolsStorageValueEnabled(value)).toBe(false);
     }
-    expect(isDeveloperToolsStorageValueEnabled(null)).toBe(false);
+    // 定制语义（feature/xcode）：缺省显示开发者工具入口——它是客户端签名状态等
+    // 诊断信息的常驻明细入口；上游缺省隐藏，显式 off 才隐藏的行为两侧一致。
+    expect(isDeveloperToolsStorageValueEnabled(null)).toBe(true);
     expect(isDeveloperToolsStorageValueEnabled("true")).toBe(true);
   });
 });

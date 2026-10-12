@@ -2,7 +2,7 @@
 // 60s TTL 缓存、失败不缓存、in-flight 去重（发行版 f3 语义）；
 // captcha-retry 刷新原因在协议 schema 中双向可用。
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import type { ClientConfigSnapshot } from "@zcode/shared";
 import { zcodeProviderRuntimeHeadersRequestReasonSchema } from "@zcode/shared";
 import { createCaptchaConfigResolver } from "../src/client-config/captchaConfigResolver.js";

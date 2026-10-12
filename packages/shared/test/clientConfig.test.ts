@@ -1,14 +1,18 @@
 import { expect, it } from "vitest";
 import { parseClientConfigSnapshot } from "../src/clientConfig.js";
 
+// 定制缝合说明：feature/xcode 在快照上扩展了 captcha（Start Plan 人机验证门禁）字段，
+// 服务端未下发时为 null；以下期望在上游基础上补齐该字段。
+
 it("有效的空响应撤销公开配置，未知字段不会透传", () => {
   expect(parseClientConfigSnapshot({ code: 0, data: null })).toEqual({
     pluginStoreOrder: null,
+    captcha: null,
     zsrcUrl: null,
   });
   expect(
     parseClientConfigSnapshot({ code: 0, data: { configs: { privateField: "not public" } } }),
-  ).toEqual({ pluginStoreOrder: null, zsrcUrl: null });
+  ).toEqual({ pluginStoreOrder: null, captcha: null, zsrcUrl: null });
 });
 
 it("严格校验 envelope 并隔离坏的模式字段", () => {
@@ -28,7 +32,11 @@ it("严格校验 envelope 并隔离坏的模式字段", () => {
         },
       },
     }),
-  ).toEqual({ pluginStoreOrder: { work: { categoryOrder: ["finance"] } }, zsrcUrl: null });
+  ).toEqual({
+    pluginStoreOrder: { work: { categoryOrder: ["finance"] } },
+    captcha: null,
+    zsrcUrl: null,
+  });
 });
 
 it("读取公开漏洞入口，裁剪空白且不透传其它 zsrc 字段", () => {
@@ -41,7 +49,7 @@ it("读取公开漏洞入口，裁剪空白且不透传其它 zsrc 字段", () =
         },
       },
     }),
-  ).toEqual({ pluginStoreOrder: null, zsrcUrl: "https://security.example.test/report" });
+  ).toEqual({ pluginStoreOrder: null, captcha: null, zsrcUrl: "https://security.example.test/report" });
 });
 
 it.each([
@@ -67,7 +75,11 @@ it.each([
         },
       },
     }),
-  ).toEqual({ pluginStoreOrder: { work: { categoryOrder: ["finance"] } }, zsrcUrl: null });
+  ).toEqual({
+    pluginStoreOrder: { work: { categoryOrder: ["finance"] } },
+    captcha: null,
+    zsrcUrl: null,
+  });
 });
 
 it("漏洞地址支持带空白的大小写混合 HTTP(S) scheme", () => {
