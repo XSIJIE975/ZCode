@@ -125,6 +125,8 @@ jobs:
       - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
+          # release job 不做 checkout，gh CLI 需要 GH_REPO 定位仓库，否则报 not a git repository
+          GH_REPO: ${{ github.repository }}
         run: |
           tag="${GITHUB_REF_NAME}"
           notes_file="$(mktemp)"

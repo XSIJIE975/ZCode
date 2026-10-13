@@ -33,6 +33,8 @@ fpm/AppImage 工具链需要 Linux 宿主或 Docker）。GitHub 托管 runner �
   job 级 `permissions: contents: write`）。`gh release view` 判重：已存在则
   `--clobber` 覆盖同名产物，保证 workflow 重跑幂等；不存在则创建并附静态说明
   （未签名产物、macOS xattr 解锁、Preview 身份与官方版并排的说明）。
+  该 job 不做 checkout，gh CLI 必须显式设置 `GH_REPO: ${{ github.repository }}`
+  定位仓库，否则在无 git 上下文时以 `not a git repository` 失败。
 - 分支模型：main 仅作上游镜像（不改），日常开发与构建都在 `xcode-<version>` 版本分支
   （如 `xcode-3.15.1` 追踪上游 3.15.1，旧 feature/xcode 已并入版本分支），
   workflow_dispatch 在 Actions 页切换分支或 `gh workflow run --ref` 触发。
@@ -70,3 +72,7 @@ fpm/AppImage 工具链需要 Linux 宿主或 Docker）。GitHub 托管 runner �
    CRLF，破坏了哈希；mac/linux runner 不转换，不受影响。修复为 `.gitattributes` 将
    `skills/visualize/assets/**` 标记 `-text`（与 third-party 许可原文同款规则）。
    新增逐字节校验的检入资产时必须同步加 `-text`/`binary` 规则。
+7. 3.15.1 首次正式发布（2026-10-13，xcode-v3.15.1）：三平台 bundle 全绿，release job
+   首次实际执行即失败——job 无 checkout 步骤，gh CLI 因 `not a git repository` 无法
+   推断仓库。修复为 release 步骤显式设置 `GH_REPO`；此前 `-test` tag 全部跳过
+   release job，该路径从未实跑过。
