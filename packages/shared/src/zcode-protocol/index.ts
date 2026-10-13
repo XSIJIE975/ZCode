@@ -2816,6 +2816,9 @@ export const zcodeProviderRuntimeHeadersResponseSchema = z.discriminatedUnion("h
             .regex(/^[a-f0-9]{64}$/)
             .optional(),
           headers: z.record(nonEmptyString, nonEmptyString).optional(),
+          // 定制缝合：账号型 Coding Plan 的客户端签名凭据（id.secret），与传输 apiKey
+          // （Project Token）分离；仅在 Host↔CLI 本地 stdio 上传递，不进传输头。
+          signingApiKey: nonEmptyString.optional(),
         })
         .strict(),
       errorMessage: nonEmptyString.optional(),

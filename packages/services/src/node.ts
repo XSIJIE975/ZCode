@@ -392,6 +392,7 @@ import { readLegacyZCodeConfigProviders } from "./model-provider/legacyZCodeConf
 import { resolveAccountTeamPlanRuntimeMaterial } from "./model-provider/accountProviderTeamPlanRequestKey.js";
 import { createAccountProviderCredentialStore } from "./model-provider/accountProviderCredentialStore.js";
 import { createAccountProviderCredentialService } from "./model-provider/accountProviderCredentialService.js";
+import { accountProviderCredentialKey } from "./model-provider/accountProviderCredentialKey.js";
 import { createAccountProviderRequestAuthService } from "./model-provider/accountProviderRequestAuthService.js";
 import {
   createAccountProviderConfigSource,
@@ -1369,6 +1370,21 @@ export function createLocalServices(options: {
           accountIdentity,
           rejectedProjectTokenFingerprint,
         });
+      },
+      // 定制缝合（feature/xcode）：客户端签名需要账号级 Coding Plan 长期 Key（id.secret）。
+      // 3.15.1 已退役远端签发流程，唯一存活来源是 ≤3.14.x 写入的凭据缓存；
+      // 物理键格式（accountProviderCredentialKey）在 3.15.1 未变，旧缓存可直接读取。
+      // 缓存缺失时返回 null，签名层按 invalid_credential 降级为未签名（不阻断请求）。
+      async loadIndividualPlanSigningKey(providerId, family) {
+        const oauthProviderId = family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;
+        const accountIdentity = (await oauthCredentialRepo.loadUserProfile(oauthProviderId))?.id;
+        if (!accountIdentity) return null;
+        const credentialKey = accountProviderCredentialKey({
+          providerId,
+          accountIdentity,
+          planKind: "individual-coding-plan",
+        });
+        return credentialService.load(credentialKey);
       },
       resolveTeamPlanMaterial: async (access, rejectedProjectTokenFingerprint) => {
         const accountIdentity = await loadAccountIdentity(access.family);

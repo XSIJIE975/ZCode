@@ -422,6 +422,9 @@ export class AiSdkModelExecution {
       rawRequestBodyCapture,
       snapshot.supportsJsonSchemaOutput,
       snapshot.providerConfig.access?.type === "zhipu-account" ? requestAuth?.apiKeyId : undefined,
+      // 定制缝合：签名凭据与传输 apiKey 分离——上游 apiKey 是 Project Token，
+      // 签名协议要求 id.secret；Host 从凭据缓存解析后经该字段下传。
+      requestAuth?.signingApiKey,
     );
     return {
       baseURL: providerConfig.baseURL,
@@ -445,6 +448,7 @@ export class AiSdkModelExecution {
     rawRequestBodyCapture: RawRequestBodyCapture,
     supportsJsonSchemaOutput: boolean,
     apiKeyId?: string,
+    signingApiKey?: string,
   ): LanguageModelFactory {
     const apiKey = this.resolveApiKey(providerConfig);
     // SDK 会合并 factory 默认 header；必须在这里去掉静态来源，才能保证缺失时真正省略。
@@ -475,7 +479,9 @@ export class AiSdkModelExecution {
       ? this.resolveClientSigningFetch(
           providerId,
           providerConfig,
-          apiKey,
+          // 签名凭据优先取 Host 下传的 id.secret（signingApiKey）；无则回退静态 apiKey
+          // （API-Key 型 Coding Plan 的静态 Key 本就是 id.secret 形态）。
+          signingApiKey ?? apiKey,
           this.resolveProviderDirectTransport(providerId),
         )
       : isOfficialProviderHost(providerConfig.baseURL)
