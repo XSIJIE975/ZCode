@@ -76,3 +76,7 @@ fpm/AppImage 工具链需要 Linux 宿主或 Docker）。GitHub 托管 runner �
    首次实际执行即失败——job 无 checkout 步骤，gh CLI 因 `not a git repository` 无法
    推断仓库。修复为 release 步骤显式设置 `GH_REPO`；此前 `-test` tag 全部跳过
    release job，该路径从未实跑过。
+8. 3.15.1 发布产物核对（2026-10-13）：Release 实际只有 6 个安装包，缺 pacman——
+   pacman target 产物扩展名是 `.pkg.tar.zst`（electron-builder.config.js 按 Arch 标准
+   显式指定），而上传通配符误写为 `*.pacman.tar.zst` 从未匹配，`if-no-files-found`
+   因其它格式命中而不报错，属静默漏传。修复通配符与 Release 说明文案。

@@ -100,7 +100,9 @@ jobs:
             packages/desktop/dist/*.AppImage
             packages/desktop/dist/*.deb
             packages/desktop/dist/*.rpm
-            packages/desktop/dist/*.pacman.tar.zst
+            # pacman target 的产物扩展名是 Arch 标准的 .pkg.tar.zst（electron-builder.config.js
+            # 显式指定），不是 .pacman.tar.zst，写错通配符会静默漏传该格式
+            packages/desktop/dist/*.pkg.tar.zst
           if-no-files-found: error
           retention-days: 14
 
@@ -136,7 +138,7 @@ jobs:
           - Windows: `*-win-x64.exe`（NSIS 安装器）
           - macOS: `*-mac-arm64.dmg` / `.zip`（未签名，首次打开需执行
             `sudo xattr -rd com.apple.quarantine "/Applications/ZCode Preview.app"`）
-          - Linux: `*-linux-x64.AppImage` / `.deb` / `.rpm` / `.pacman.tar.zst`
+          - Linux: `*-linux-x64.AppImage` / `.deb` / `.rpm` / `.pkg.tar.zst`
 
           身份为「ZCode Preview」（appId dev.zcode.app.preview），可与官方 ZCode 并排安装，
           连接生产后端；业务数据与官方版共享 ~/.zcode。
