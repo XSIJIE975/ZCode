@@ -64,3 +64,9 @@ fpm/AppImage 工具链需要 Linux 宿主或 Docker）。GitHub 托管 runner �
 5. 首次实跑结果（2026-10-08，xcode-v3.14.3-test1）：win-x64 与 mac-arm64 一次通过；
    linux 的 AppImage/deb/rpm 构建通过，pacman 目标因 ubuntu runner 缺 `bsdtar`
    （libarchive）失败——修复为 workflow 中 Linux job 显式安装 `libarchive-tools`。
+6. 3.15.1 试跑（2026-10-13，xcode-v3.15.1-test1）：win-x64 在生产构建的
+   `gen-ui-runtime-assets.mjs` 逐字节 sha256 校验处失败（`Gen UI vendor hash mismatch`）。
+   原因：Windows runner 默认 `core.autocrlf=true`，checkout 把 vendor 快照的 LF 转成
+   CRLF，破坏了哈希；mac/linux runner 不转换，不受影响。修复为 `.gitattributes` 将
+   `skills/visualize/assets/**` 标记 `-text`（与 third-party 许可原文同款规则）。
+   新增逐字节校验的检入资产时必须同步加 `-text`/`binary` 规则。

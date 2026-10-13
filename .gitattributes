@@ -14,3 +14,8 @@ third-party/runtime/*.txt -text -whitespace
 docs/knip/docs/LICENSE -text -whitespace
 docs/knip/docs/licenses/** -text -whitespace
 third-party/inventory.json linguist-generated=true
+
+# Gen UI 运行时 vendor 快照被构建期逐字节 sha256 校验
+# （packages/desktop/scripts/gen-ui-runtime-assets.mjs 对照 vendor/manifest.json）。
+# Windows runner 默认 autocrlf=true 会把 LF 检出为 CRLF 并破坏哈希，必须禁用转换。
+apps/zcode-cli/packages/visualize-plugin/skills/visualize/assets/** -text -whitespace
