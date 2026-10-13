@@ -8,7 +8,7 @@ on:
   push:
     tags:
       # 只认 xcode- 前缀的 tag 作为发布入口：main 追踪上游，若日后同步上游的 v* tag
-      # 并误推到 origin，不会意外触发发布。发版请打 xcode-v<version>（指向 feature/xcode 的提交）。
+      # 并误推到 origin，不会意外触发发布。发版请打 xcode-v<version>（指向对应 xcode-<version> 版本分支的提交）。
       - "xcode-v*"
 
 permissions:
