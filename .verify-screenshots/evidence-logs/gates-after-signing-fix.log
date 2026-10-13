@@ -1,0 +1,16 @@
+=== G2 lint (HEAD) ===
+Found 62 warnings and 0 errors.
+Finished in 763ms on 6028 files using 16 threads.
+
+=== G3 architecture ===
+violations: 0
+baseline: 0
+new: 0
+
+=== G6 adapters signing tests ===
+[2m Test Files [22m [1m[32m2 passed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[32m16 passed[39m[22m[90m (16)[39m
+
+=== affected services/shared tests ===
+[2m Test Files [22m [1m[32m5 passed[39m[22m[90m (5)[39m
+[2m      Tests [22m [1m[32m35 passed[39m[22m[90m (35)[39m
