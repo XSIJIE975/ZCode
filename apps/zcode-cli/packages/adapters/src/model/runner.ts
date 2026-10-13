@@ -60,7 +60,6 @@ export { normalizeUsage, toModelStreamEvent } from "./runner-normalization.js";
 
 export interface AiSdkModelAdapterOptions {
   defaultHeaders?: AiSdkModelExecutionConfig["defaultHeaders"];
-  codingPlanSignature?: AiSdkModelExecutionConfig["codingPlanSignature"];
   clientRequestSigningState?: AiSdkModelExecutionOptions["clientRequestSigningState"];
   requestSecurityState?: ModelRequestSecurityState;
   endpointRoutingPort?: import("@zcode/contracts").ProviderEndpointRoutingPort;
@@ -100,7 +99,6 @@ export class AiSdkModelAdapter {
     this.execution = new AiSdkModelExecution(
       {
         defaultHeaders: options.defaultHeaders,
-        ...(options.codingPlanSignature ? { codingPlanSignature: options.codingPlanSignature } : {}),
         ...(options.endpointRoutingPort
           ? { endpointRoutingPort: options.endpointRoutingPort }
           : {}),

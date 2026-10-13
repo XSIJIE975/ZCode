@@ -26,7 +26,5 @@ function freezeRequestAuth(input: ModelRequestAuth): ModelRequestAuth {
     ...(input.apiKey ? { apiKey: input.apiKey } : {}),
     ...(input.apiKeyId ? { apiKeyId: input.apiKeyId } : {}),
     ...(input.headers ? { headers: Object.freeze({ ...input.headers }) } : {}),
-    // 定制缝合：签名凭据（id.secret）随执行材料投影，仅用于 X-Client-* 签名。
-    ...(input.signingApiKey ? { signingApiKey: input.signingApiKey } : {}),
   });
 }

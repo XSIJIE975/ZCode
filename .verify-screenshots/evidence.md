@@ -43,6 +43,10 @@
   中 `sess_c3827697`（provider `account:bigmodel-individual-coding-plan`）有
   `feature_gate enabled` 且无 `invalid_credential`。
 - 修复：commit `879930aa`（signingApiKey 独立下传，传输 apiKey 保持 Project Token）。
+  > 后续更新（与发行版 3.15.1 对齐）：该 signingApiKey 桥已**移除**。发行版签名层直接
+  > 接受 3.15.1 的传输凭据形态 `project_access` JWT（`parseClientSigningCredential` 增加
+  > JWT 分支、握手字段 `handshakeField`），不再依赖长期 `:api-key` 缓存，因此全新机器
+  > 也能签名。详见 `docs/specs/client-request-signing.md`。下方日志为该桥生效时的历史证据。
 - 修复后日志（`~/.zcode/cli/log/zcode-2026-10-13.jsonl`）：
   ```
   $ grep -c invalid_credential  (时间 >= 2026-10-13T01:15Z)  → 0

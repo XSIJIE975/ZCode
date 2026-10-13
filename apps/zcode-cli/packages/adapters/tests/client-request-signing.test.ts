@@ -1,10 +1,9 @@
-// Client Request Signing 单元测试：凭据解析、观测 store、PoW 可验证性、
-// gate 负缓存、signer 状态机（gate 关闭/签名/验签被拒降级/无效凭据 fail-open）。
-// 对应发行版逆向移植，防止后续改动破坏协议对齐（冒烟脚本在仓外，不入库）。
+// Client Request Signing 单元测试：凭据解析（id.secret / project_access JWT）、观测 store、
+// PoW 可验证性、signer 状态机（签名/验签被拒降级/无效凭据 fail-open）。
+// 对应发行版 3.15.1 逆向移植，防止后续改动破坏协议对齐（冒烟脚本在仓外，不入库）。
 import assert from "node:assert/strict";
 import { test } from "vitest";
 import {
-  CodingPlanSignatureFeatureGate,
   ClientRequestSigningManager,
   ClientSigningObservationStore,
 } from "../src/model/client-request-signing.js";
@@ -14,16 +13,59 @@ import {
 } from "../src/model/client-request-signing-crypto.js";
 import { requiresClientRequestSigning } from "../src/model/model-execution.js";
 
-test("parseClientSigningCredential 恰好一个点且两侧非空", () => {
+test("parseClientSigningCredential：id.secret 形态（恰好一个点且两侧非空）", () => {
   assert.deepEqual(parseClientSigningCredential("id.secret"), {
     apiKeyId: "id",
     apiKeySecret: "secret",
     credential: "id.secret",
+    handshakeField: "apiKey",
   });
   assert.equal(parseClientSigningCredential("sk-plain"), undefined);
-  assert.equal(parseClientSigningCredential("a.b.c"), undefined);
   assert.equal(parseClientSigningCredential(".secret"), undefined);
   assert.equal(parseClientSigningCredential("id."), undefined);
+});
+
+test("parseClientSigningCredential：project_access JWT 形态（3.15.1 账号型 Coding Plan 传输凭据）", () => {
+  const jwt = buildProjectAccessToken(
+    { alg: "HS256", sign_type: "SIGN", typ: "JWT" },
+    { api_key: "inner-key", token_use: "project_access" },
+  );
+  assert.deepEqual(parseClientSigningCredential(jwt), {
+    apiKeyId: "inner-key",
+    apiKeySecret: jwt,
+    credential: jwt,
+    handshakeField: "accessToken",
+  });
+  // 头/载荷不符即 undefined；3 段串不回退 id.secret 分支（与发行版一致）。
+  assert.equal(
+    parseClientSigningCredential(
+      buildProjectAccessToken(
+        { alg: "HS256", sign_type: "OTHER", typ: "JWT" },
+        { api_key: "k", token_use: "project_access" },
+      ),
+    ),
+    undefined,
+  );
+  assert.equal(
+    parseClientSigningCredential(
+      buildProjectAccessToken(
+        { alg: "HS256", sign_type: "SIGN", typ: "JWT" },
+        { api_key: "k", token_use: "other" },
+      ),
+    ),
+    undefined,
+  );
+  assert.equal(
+    parseClientSigningCredential(
+      buildProjectAccessToken(
+        { alg: "HS256", sign_type: "SIGN", typ: "JWT" },
+        { api_key: "   ", token_use: "project_access" },
+      ),
+    ),
+    undefined,
+  );
+  // 3 段但不是合法 JWT：undefined（不当作 id.secret）。
+  assert.equal(parseClientSigningCredential("a.b.c"), undefined);
 });
 
 test("观测 store 按 requestId 归因、take 取出后清空、超容量淘汰最旧", () => {
@@ -85,30 +127,22 @@ test("PoW 满足前导零位且绑定 challenge 输入", async () => {
   assert.ok(reused.length === 32);
 });
 
-test("feature gate 失败结果在负缓存 TTL 内不重查", async () => {
-  let fetchCount = 0;
-  let now = 1_000_000;
-  const gate = new CodingPlanSignatureFeatureGate({
-    headers: {},
-    now: () => now,
-    transport: (async () => {
-      fetchCount += 1;
-      throw new Error("network down");
-    }) as typeof globalThis.fetch,
-    url: "https://gate.example.com/api/v1/agent/configs",
-  });
-  assert.equal(await gate.isEnabled(), false);
-  assert.equal(await gate.isEnabled(), false);
-  assert.equal(fetchCount, 1, "30s 负缓存期内不重查");
-  now += 31_000;
-  await gate.isEnabled();
-  assert.equal(fetchCount, 2, "TTL 过期后恢复查询");
-});
+/** base64url 编码（无 padding），用于构造测试用 JWT 段。 */
+function base64Url(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
+
+function buildProjectAccessToken(header: unknown, payload: unknown): string {
+  return `${base64Url(header)}.${base64Url(payload)}.signature`;
+}
 
 function createSigningTransport(options: {
   rejectAttempts?: number;
+  credential?: { apiKeyId: string; secret: string };
 }) {
+  const credential = options.credential ?? { apiKeyId: "id", secret: "secret" };
   const seenSignedRequests: Request[] = [];
+  const handshakeBodies: Record<string, unknown>[] = [];
   let handshakeCount = 0;
   let signedCount = 0;
   let unsignedCount = 0;
@@ -116,11 +150,12 @@ function createSigningTransport(options: {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("/api/paas/c1f3a7e2/v2/client")) {
       handshakeCount += 1;
+      handshakeBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
       return new Response(
         JSON.stringify({
           code: 200,
           msg: "",
-          data: { privateCipher: await buildTestPrivateCipher() },
+          data: { privateCipher: await buildTestPrivateCipher(credential.apiKeyId, credential.secret) },
         }),
         { status: 200 },
       );
@@ -140,18 +175,19 @@ function createSigningTransport(options: {
   };
   return {
     seenSignedRequests,
+    handshakeBodies,
     counts: () => ({ handshakeCount, signedCount, unsignedCount }),
     transport,
   };
 }
 
 /** 构造可被客户端解密的真实 privateCipher：Ed25519 PKCS8 + HKDF/ed25519_priv AES-GCM。 */
-async function buildTestPrivateCipher(): Promise<string> {
+async function buildTestPrivateCipher(apiKeyId: string, secret: string): Promise<string> {
   const keyPair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign"]);
   const pkcs8 = new Uint8Array(await crypto.subtle.exportKey("pkcs8", keyPair.privateKey));
   const hkdf = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode("secret"),
+    new TextEncoder().encode(secret),
     "HKDF",
     false,
     ["deriveBits"],
@@ -174,7 +210,7 @@ async function buildTestPrivateCipher(): Promise<string> {
   const pkcs8Base64 = Buffer.from(pkcs8).toString("base64");
   const encrypted = new Uint8Array(
     await crypto.subtle.encrypt(
-      { additionalData: new TextEncoder().encode("id"), iv, name: "AES-GCM", tagLength: 128 },
+      { additionalData: new TextEncoder().encode(apiKeyId), iv, name: "AES-GCM", tagLength: 128 },
       aesKey,
       new TextEncoder().encode(pkcs8Base64),
     ),
@@ -187,12 +223,9 @@ async function buildTestPrivateCipher(): Promise<string> {
   return btoa(binary);
 }
 
-test("gate 关闭：请求原样未签名透传", async () => {
+test("origin 不符：请求原样未签名透传，不握手", async () => {
   const harness = createSigningTransport({});
-  const manager = new ClientRequestSigningManager({
-    isEnabled: async () => false,
-    observer: undefined,
-  });
+  const manager = new ClientRequestSigningManager({ observer: undefined });
   const fetch = manager.createFetch(
     {
       apiKey: "id.secret",
@@ -201,19 +234,20 @@ test("gate 关闭：请求原样未签名透传", async () => {
     },
     harness.transport as typeof globalThis.fetch,
   );
-  const response = await fetch("https://open.bigmodel.cn/api/anthropic/v1/messages", {
+  // baseURL origin 为 open.bigmodel.cn，请求发往别处 → 不进入签名层。
+  const response = await fetch("https://other.example.com/api/anthropic/v1/messages", {
     headers: { "x-request-id": "req-1", "x-session-id": "sess-1" },
     method: "POST",
   });
   assert.equal(response.status, 200);
-  assert.equal(harness.counts().handshakeCount, 0, "gate 关闭不应握手");
+  assert.equal(harness.counts().handshakeCount, 0, "origin 不符不应握手");
+  assert.equal(harness.counts().unsignedCount, 1);
 });
 
-test("签名请求：携带 7 个 X-Client 头与 requestUrl 观测，握手成功后 200", async () => {
+test("签名请求（id.secret）：携带 7 个 X-Client 头、握手用 apiKey 字段、requestUrl 观测", async () => {
   const observations = new ClientSigningObservationStore();
   const harness = createSigningTransport({});
   const manager = new ClientRequestSigningManager({
-    isEnabled: async () => true,
     observer: (input) => {
       if (input.requestId) observations.record(input.requestId, input.observation);
     },
@@ -236,6 +270,9 @@ test("签名请求：携带 7 个 X-Client 头与 requestUrl 观测，握手成�
   });
   assert.equal(response.status, 200);
   assert.equal(harness.counts().handshakeCount, 1);
+  // id.secret 凭据握手 body 承载字段为 apiKey。
+  assert.equal(harness.handshakeBodies[0]?.apiKey, "id.secret");
+  assert.equal(harness.handshakeBodies[0]?.accessToken, undefined);
   assert.equal(harness.seenSignedRequests.length, 1);
   const sent = harness.seenSignedRequests[0];
   assert.equal(sent.headers.get("x-app-id"), "zcode");
@@ -260,11 +297,45 @@ test("签名请求：携带 7 个 X-Client 头与 requestUrl 观测，握手成�
   assert.equal(Object.keys(taken[0]?.headers ?? {}).length, 7);
 });
 
+test("签名请求（project_access JWT）：握手用 accessToken 字段并成功签名", async () => {
+  const observations = new ClientSigningObservationStore();
+  const jwt = buildProjectAccessToken(
+    { alg: "HS256", sign_type: "SIGN", typ: "JWT" },
+    { api_key: "inner-key", token_use: "project_access" },
+  );
+  const harness = createSigningTransport({ credential: { apiKeyId: "inner-key", secret: jwt } });
+  const manager = new ClientRequestSigningManager({
+    observer: (input) => {
+      if (input.requestId) observations.record(input.requestId, input.observation);
+    },
+  });
+  const fetch = manager.createFetch(
+    {
+      apiKey: jwt,
+      baseURL: "https://open.bigmodel.cn/api/anthropic",
+      providerId: "provider:test",
+    },
+    harness.transport as typeof globalThis.fetch,
+  );
+  const response = await fetch("https://open.bigmodel.cn/api/anthropic/v1/messages", {
+    headers: { "x-request-id": "req-jwt", "x-session-id": "sess-1" },
+    method: "POST",
+  });
+  assert.equal(response.status, 200);
+  assert.equal(harness.counts().handshakeCount, 1);
+  // JWT 凭据握手 body 承载字段为 accessToken，值为整个 JWT。
+  assert.equal(harness.handshakeBodies[0]?.accessToken, jwt);
+  assert.equal(harness.handshakeBodies[0]?.apiKey, undefined);
+  const sent = harness.seenSignedRequests[0];
+  assert.equal(sent.headers.get("x-app-id"), "zcode");
+  assert.ok(sent.headers.get("x-client-sig"), "JWT 凭据也应完成业务签名");
+  assert.equal(observations.take("req-jwt")[0]?.kind, "signed_sent");
+});
+
 test("401 验签被拒：重新握手重签一次，再拒进入 bypass 并以未签名发送", async () => {
   const observations = new ClientSigningObservationStore();
   const harness = createSigningTransport({ rejectAttempts: 2 });
   const manager = new ClientRequestSigningManager({
-    isEnabled: async () => true,
     observer: (input) => {
       if (input.requestId) observations.record(input.requestId, input.observation);
     },
@@ -311,7 +382,6 @@ test("无效凭据（sk- key）：fail-open 未签名发送并携带 invalid_cre
   const observations = new ClientSigningObservationStore();
   const harness = createSigningTransport({});
   const manager = new ClientRequestSigningManager({
-    isEnabled: async () => true,
     observer: (input) => {
       if (input.requestId) observations.record(input.requestId, input.observation);
     },
@@ -346,6 +416,14 @@ test("requiresClientRequestSigning 判定矩阵", () => {
     requiresClientRequestSigning({
       access: { type: "zhipu-account", mode: "off-peak" },
       baseURL: "https://api.z.ai/api/anthropic",
+    }),
+    false,
+  );
+  // highspeed 走免签网关：官方域也不签名。
+  assert.equal(
+    requiresClientRequestSigning({
+      access: { type: "zhipu-account", mode: "highspeed" },
+      baseURL: "https://open.bigmodel.cn/api/anthropic",
     }),
     false,
   );

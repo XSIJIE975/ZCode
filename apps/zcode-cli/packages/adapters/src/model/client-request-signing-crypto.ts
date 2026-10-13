@@ -16,13 +16,32 @@ export interface ParsedClientSigningCredential {
   apiKeyId: string;
   apiKeySecret: string;
   credential: string;
+  /**
+   * 握手 body 中承载凭据的字段名。发行版 3.15.1 起账号型 Coding Plan 的传输凭据
+   * 是 `project_access` JWT，用 `accessToken` 承载；传统 `id.secret` Key 用 `apiKey`。
+   */
+  handshakeField: "accessToken" | "apiKey";
 }
 
+const PROJECT_ACCESS_TOKEN_USE = "project_access";
+
 /**
- * Client Signing 的 API Key 必须是 `id.secret` 形态（恰好一个分隔符，两侧非空）。
- * 普通 OpenAI 风格 `sk-xxx` Key 无法参与握手，会在发送前被拒绝。
+ * 解析 Client Signing 凭据，与发行版 3.15.1 的 parseClientSigningCredential 对齐，接受两种形态：
+ *
+ * 1. `project_access` JWT（3 段；头 `{alg:HS256, typ:JWT, sign_type:SIGN}`，
+ *    载荷 `{token_use:"project_access", api_key}`）——3.15.1 起账号型 Coding Plan
+ *    的传输凭据即此 JWT（由 ProjectAccessTokenClient 现场换取）；`apiKeyId` 取载荷内
+ *    `api_key`，签名 secret 是整个 JWT，握手字段为 `accessToken`。
+ * 2. `id.secret` 形态（恰好一个分隔符，两侧非空）——传统 Coding Plan API Key。
+ *
+ * 其余形态（含普通 OpenAI 风格 `sk-xxx`）返回 undefined，由调用方决定降级还是失败。
+ * 与发行版一致：3 段且第 3 段非空的串按 JWT 解析，失败即返回 undefined，不再回退 `id.secret` 分支。
  */
 export function parseClientSigningCredential(apiKey: string): ParsedClientSigningCredential | undefined {
+  const segments = apiKey.split(".");
+  if (segments.length === 3 && segments[2]) {
+    return parseProjectAccessToken(apiKey);
+  }
   const separatorIndex = apiKey.indexOf(".");
   if (
     separatorIndex <= 0 ||
@@ -36,7 +55,43 @@ export function parseClientSigningCredential(apiKey: string): ParsedClientSignin
     apiKeyId: apiKey.slice(0, separatorIndex),
     apiKeySecret: apiKey.slice(separatorIndex + 1),
     credential: apiKey,
+    handshakeField: "apiKey",
   };
+}
+
+function parseProjectAccessToken(token: string): ParsedClientSigningCredential | undefined {
+  try {
+    const [headerSegment, payloadSegment] = token.split(".");
+    const header = decodeJwtSegment(headerSegment);
+    if (header?.alg !== "HS256" || header.typ !== "JWT" || header.sign_type !== "SIGN") {
+      return undefined;
+    }
+    const payload = decodeJwtSegment(payloadSegment);
+    const apiKeyId = payload?.api_key;
+    if (
+      payload?.token_use !== PROJECT_ACCESS_TOKEN_USE ||
+      typeof apiKeyId !== "string" ||
+      !apiKeyId.trim()
+    ) {
+      return undefined;
+    }
+    return { apiKeyId, apiKeySecret: token, credential: token, handshakeField: "accessToken" };
+  } catch {
+    return undefined;
+  }
+}
+
+/** base64url 解码 JWT 段并解析为对象；非对象或解码失败返回 undefined。 */
+function decodeJwtSegment(segment: string | undefined): Record<string, unknown> | undefined {
+  if (!segment) return undefined;
+  const normalized = segment.replace(/-/gu, "+").replace(/_/gu, "/");
+  const json = new TextDecoder().decode(
+    Uint8Array.from(atob(normalized), (char) => char.charCodeAt(0)),
+  );
+  const value: unknown = JSON.parse(json);
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 /** 用 HKDF 派生的 HMAC-SHA256 密钥对 message 签名，输出 base64。 */

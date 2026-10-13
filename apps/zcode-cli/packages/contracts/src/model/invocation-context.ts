@@ -64,12 +64,6 @@ export interface ModelRequestAuth {
   apiKey?: string;
   apiKeyId?: string;
   headers?: Record<string, string>;
-  /**
-   * 定制缝合（feature/xcode）：账号型 Coding Plan 的客户端签名凭据（id.secret 长期 Key）。
-   * 上游 3.15.1 的 apiKey 是 Project Token（传输用）；签名协议仍要求 id.secret 形态，
-   * 二者分离传递，signingApiKey 只喂给 X-Client-* 签名层，不写传输头。
-   */
-  signingApiKey?: string;
 }
 
 export interface ModelRequestAuthSourceInput {

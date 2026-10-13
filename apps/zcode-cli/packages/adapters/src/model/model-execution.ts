@@ -39,25 +39,16 @@ import {
   AiSdkClientRequestSigningState,
   ClientRequestSigningManager,
   ClientSigningObservationStore,
-  CodingPlanSignatureFeatureGate,
   DEFAULT_CLIENT_SIGNING_VERSION,
   type ClientSigningFetch,
   type ClientSigningObservation,
   type ClientSigningObservationKind,
-  type CodingPlanSignatureFeatureGateResult,
-  clientRequestSigningFeatureScopeKey,
   readClientSigningRequestId,
 } from "./client-request-signing.js";
 
 export type AiSdkProviderKind = "openai" | "anthropic" | "openai-compatible";
 
 export type EnvRecord = Record<string, string | undefined>;
-
-/** 官方 Coding Plan 签名运行时配置：feature gate 地址与查询头（bootstrap 产出）。 */
-export interface CodingPlanSignatureRuntimeConfig {
-  configUrl: string | (() => string);
-  headers: Record<string, string> | (() => Record<string, string>);
-}
 
 interface AiSdkProviderConfig {
   access: RegistryProviderConfig["access"];
@@ -72,8 +63,6 @@ interface AiSdkProviderConfig {
 export interface AiSdkModelExecutionConfig {
   /** 执行环境提供的默认来源信息，不属于 Provider 持久化配置。 */
   defaultHeaders?: Readonly<Record<string, string>>;
-  /** 官方 Coding Plan 客户端签名（额度折算的服务端识别前提）；缺省不签名。 */
-  codingPlanSignature?: CodingPlanSignatureRuntimeConfig;
   endpointRoutingPort?: ProviderEndpointRoutingPort;
   env?: EnvRecord;
   network?: AiSdkNetworkConfig;
@@ -192,7 +181,6 @@ export class AiSdkModelExecution {
   private readonly env: EnvRecord;
   private readonly defaultHeaders: Record<string, string>;
   private readonly network: AiSdkNetworkConfig;
-  private readonly codingPlanSignature?: CodingPlanSignatureRuntimeConfig;
   private readonly endpointRoutingPort?: ProviderEndpointRoutingPort;
   private readonly logger?: Logger;
   private readonly baseTransport?: ProviderFetch;
@@ -200,7 +188,6 @@ export class AiSdkModelExecution {
   private readonly providerTransports = new Map<string, ProviderFetch>();
   private readonly providerDirectTransports = new Map<string, ProviderFetch>();
   private readonly signingManager: ClientRequestSigningManager;
-  private readonly signingFeatureGates = new Map<string, CodingPlanSignatureFeatureGate>();
   private readonly clientSigningObservations = new ClientSigningObservationStore();
   private readonly accessModeUnsignedLoggedProviders = new Set<string>();
   private readonly requestSecurity: ModelRequestSecurityPort;
@@ -209,14 +196,11 @@ export class AiSdkModelExecution {
     this.env = config.env ?? process.env;
     this.defaultHeaders = { ...config.defaultHeaders };
     this.network = { ...config.network };
-    this.codingPlanSignature = config.codingPlanSignature;
     this.endpointRoutingPort = config.endpointRoutingPort;
     this.logger = options.logger;
     this.baseTransport = options.transport;
     this.clientRequestSigningState = options.clientRequestSigningState;
     this.signingManager = new ClientRequestSigningManager({
-      isEnabled: (apiKey, signal) =>
-        this.resolveSigningFeatureGate(apiKey)?.isEnabled(signal) ?? Promise.resolve(false),
       keyCache: this.clientRequestSigningState?.keyCache,
       observer: (input) => this.observeClientSigning(input),
     });
@@ -269,60 +253,6 @@ export class AiSdkModelExecution {
         this.logger?.warn("Client signing failed closed", logContext);
         return;
     }
-  }
-
-  private logFeatureGateResult(result: CodingPlanSignatureFeatureGateResult): void {
-    const logContext = {
-      cacheable: result.cacheable,
-      enabled: result.enabled,
-      event: "model.client_signing.feature_gate",
-      failure: result.failure,
-      httpStatus: result.httpStatus,
-    };
-    if (result.failure) {
-      this.logger?.warn("Client signing feature gate unavailable", logContext);
-      return;
-    }
-    this.logger?.info(
-      result.enabled
-        ? "Client signing feature gate enabled"
-        : "Client signing feature gate disabled",
-      logContext,
-    );
-  }
-
-  private resolveSigningFeatureGate(apiKey: string): CodingPlanSignatureFeatureGate | undefined {
-    if (!this.codingPlanSignature) return undefined;
-    if (!this.clientRequestSigningState) {
-      const cached = this.signingFeatureGates.get(apiKey);
-      if (cached) return cached;
-    }
-    const gateTransport = createNetworkProxyFetch({
-      caCertFile: this.network.caCertFile,
-      env: this.env,
-      fetch: this.baseTransport,
-      httpProxy: this.network.httpProxy,
-      noProxy: this.network.noProxy,
-    });
-    const gate = new CodingPlanSignatureFeatureGate({
-      headers: { ...resolveCodingPlanSignatureHeaders(this.codingPlanSignature), "x-api-key": apiKey },
-      onResult: (result) => this.logFeatureGateResult(result),
-      transport: gateTransport,
-      url: this.codingPlanSignature.configUrl,
-    });
-    const resolved = this.clientRequestSigningState?.resolveFeatureGate({
-      apiKey,
-      create: () => gate,
-      scopeKey: clientRequestSigningFeatureScopeKey({
-        configUrl: this.codingPlanSignature.configUrl,
-        headers: this.codingPlanSignature.headers,
-        network: this.network,
-      }),
-    }) ?? gate;
-    if (!this.clientRequestSigningState) {
-      this.signingFeatureGates.set(apiKey, resolved);
-    }
-    return resolved;
   }
 
   /**
@@ -422,9 +352,6 @@ export class AiSdkModelExecution {
       rawRequestBodyCapture,
       snapshot.supportsJsonSchemaOutput,
       snapshot.providerConfig.access?.type === "zhipu-account" ? requestAuth?.apiKeyId : undefined,
-      // 定制缝合：签名凭据与传输 apiKey 分离——上游 apiKey 是 Project Token，
-      // 签名协议要求 id.secret；Host 从凭据缓存解析后经该字段下传。
-      requestAuth?.signingApiKey,
     );
     return {
       baseURL: providerConfig.baseURL,
@@ -448,7 +375,6 @@ export class AiSdkModelExecution {
     rawRequestBodyCapture: RawRequestBodyCapture,
     supportsJsonSchemaOutput: boolean,
     apiKeyId?: string,
-    signingApiKey?: string,
   ): LanguageModelFactory {
     const apiKey = this.resolveApiKey(providerConfig);
     // SDK 会合并 factory 默认 header；必须在这里去掉静态来源，才能保证缺失时真正省略。
@@ -479,9 +405,9 @@ export class AiSdkModelExecution {
       ? this.resolveClientSigningFetch(
           providerId,
           providerConfig,
-          // 签名凭据优先取 Host 下传的 id.secret（signingApiKey）；无则回退静态 apiKey
-          // （API-Key 型 Coding Plan 的静态 Key 本就是 id.secret 形态）。
-          signingApiKey ?? apiKey,
+          // 签名凭据与传输 apiKey 同一来源：账号型 Coding Plan 下传的是 project_access JWT
+          // （由 Host 现场换取），API-Key 型是静态 id.secret Key——两者 parseClientSigningCredential 均可解析。
+          apiKey,
           this.resolveProviderDirectTransport(providerId),
         )
       : isOfficialProviderHost(providerConfig.baseURL)
@@ -680,7 +606,7 @@ function resolveOfficialRootDomain(baseURL: string | undefined): string | undefi
  * - Coding Plan API Key；
  * - 账号型个人 / 团队 Coding Plan；
  * - 端点在官方域或平台签名主机上。
- * start-plan / off-peak 明确排除（服务端不对其验签计费）。
+ * start-plan / off-peak / highspeed 明确排除（服务端不对其验签计费；highspeed 走免签网关）。
  */
 export function requiresClientRequestSigning(
   providerConfig: Pick<AiSdkProviderConfig, "access" | "baseURL">,
@@ -688,7 +614,7 @@ export function requiresClientRequestSigning(
   const access = providerConfig.access;
   if (
     access.type === "zhipu-account" &&
-    (access.mode === "start-plan" || access.mode === "off-peak")
+    (access.mode === "start-plan" || access.mode === "off-peak" || access.mode === "highspeed")
   ) {
     return false;
   }
@@ -721,12 +647,6 @@ function readHeaderValue(
     }
   }
   return undefined;
-}
-
-function resolveCodingPlanSignatureHeaders(
-  config: CodingPlanSignatureRuntimeConfig,
-): Record<string, string> {
-  return typeof config.headers === "function" ? config.headers() : config.headers;
 }
 
 /** 验证码头单次有效，合并新鉴权材料前必须剥掉上一轮的残留（复用旧 param 会触发 F008）。 */

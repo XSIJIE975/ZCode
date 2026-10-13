@@ -16,13 +16,6 @@ export interface AccountRequestAuthMaterial {
   apiKeyId?: string;
   headers?: Record<string, string>;
   accountScope?: string;
-  /**
-   * 定制缝合（feature/xcode）：账号型 Coding Plan 的客户端请求签名凭据（id.secret 长期 Key）。
-   * 上游 3.15.1 把传输鉴权换成 Project Token，但客户端签名协议仍要求 id.secret 形态；
-   * 传输与签名由此分离：apiKey=Project Token（上游语义，进传输头），
-   * signingApiKey=凭据缓存中的账号级 Coding Plan Key（仅用于 X-Client-* 签名，不进传输头）。
-   */
-  signingApiKey?: string;
 }
 
 export interface AccountRequestAuthInput {
@@ -65,11 +58,6 @@ interface AccountProviderRequestAuthServiceOptions {
     family: ProviderFamilyDomain,
     rejectedProjectTokenFingerprint?: string,
   ): Promise<ProjectAccessTokenMaterial | null>;
-  /** 定制缝合：读取凭据缓存中的账号级 Coding Plan 长期 Key（≤3.14.x 写入），供客户端签名。 */
-  loadIndividualPlanSigningKey?(
-    providerId: string,
-    family: ProviderFamilyDomain,
-  ): Promise<string | null>;
   resolveTeamPlanMaterial(
     access: Extract<ZCodeAccountAccess, { planKind: "team-coding-plan" }>,
     rejectedProjectTokenFingerprint?: string,
@@ -124,14 +112,6 @@ class AccountProviderRequestAuthService implements AccountRequestAuthResolver {
       apiKey: requireApiKey(material?.token, providerId),
       apiKeyId: material?.apiKeyId,
       ...(accountScope ? { accountScope } : {}),
-      // 定制缝合：签名凭据独立于 Project Token；缓存缺失时留空（签名层降级为未签名）。
-      ...(access.planKind === "individual-coding-plan" && this.#options.loadIndividualPlanSigningKey
-        ? {
-            signingApiKey:
-              (await this.#options.loadIndividualPlanSigningKey(providerId, access.family)) ??
-              undefined,
-          }
-        : {}),
     };
   }
 

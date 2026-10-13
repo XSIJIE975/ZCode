@@ -1,11 +1,12 @@
-/* eslint-disable max-lines -- Client Signing 是一套完整协议单元（gate/握手/签名/重试/降级），拆文件会分散握手与验签重试的时序约束。 */
+/* eslint-disable max-lines -- Client Signing 是一套完整协议单元（握手/签名/重试/降级），拆文件会分散握手与验签重试的时序约束。 */
 // ============================================================
 // Client Request Signing V4
 // ============================================================
 // 官方发行版中 Coding Plan 的额度折算（0.67 系数）由服务端在验签通过后应用；
 // 客户端职责是给官方 Coding Plan 请求附加可验签的 X-Client-* header 族。
-// 本模块实现：feature gate 查询、Ed25519 私钥握手、请求签名、验签被拒后的
-// 重新握手重试与降级（bypass / fail-open）。
+// 本模块实现：Ed25519 私钥握手、请求签名、验签被拒后的重新握手重试与降级（bypass / fail-open）。
+// 与发行版 3.15.1 对齐：不再做客户端 feature gate 查询——命中 requiresClientRequestSigning 即签名，
+// 是否启用签名由服务端在握手/验签阶段判定（拒绝后自动降级为未签名发送）。
 
 import { ZCODE_VERSION } from "@zcode/shared";
 import {
@@ -26,8 +27,6 @@ const HANDSHAKE_METHOD = "get_sign_key";
 const CLIENT_SIGNING_NONCE_BYTES = 16;
 const CLIENT_SIGNING_POW_BITS = 8;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
-const FEATURE_GATE_CACHE_TTL_MS = 3_600_000;
-const FEATURE_GATE_TIMEOUT_MS = 15_000;
 const OBSERVATION_STORE_MAX_REQUESTS = 64;
 const VERIFY_SIGNATURE_INVALID = "VERIFY_SIGNATURE_INVALID";
 const VERIFY_APIKEY_EXPIRED = "VERIFY_APIKEY_EXPIRED";
@@ -42,15 +41,8 @@ const CLIENT_SIGNING_HEADER_NAMES = [
   "X-Client-Sign-Verified",
 ] as const;
 const HANDSHAKE_REASON_PATTERN = /^HANDSHAKE_[A-Z_]+$/u;
-/**
- * gate 查询失败（HTTP/业务码/超时/网络）的短负缓存：发行版对失败结果不缓存，
- * 但端点故障时每个请求都要先付一次 15s gate 超时才 fail-open，退化不可接受；
- * 30s 内直接沿用失败结论，属于开源侧可用性偏差（成功结果仍按 1h TTL 缓存）。
- */
-const FEATURE_GATE_FAILURE_TTL_MS = 30_000;
 
 export type ClientSigningFetch = typeof globalThis.fetch;
-type SigningHeaders = Record<string, string>;
 type SigningRequestInit = RequestInit & { timeoutMs?: number };
 
 export type ClientRequestSigningErrorKind =
@@ -191,128 +183,6 @@ export function readClientSigningRequestId(
 }
 
 // ------------------------------------------------------------
-// Feature gate：按 API Key 查询服务端是否启用客户端签名
-// ------------------------------------------------------------
-
-export interface CodingPlanSignatureFeatureGateResult {
-  cacheable: boolean;
-  enabled: boolean;
-  failure?: "http_status" | "business_code" | "malformed" | "timeout" | "network";
-  httpStatus?: number;
-}
-
-export interface CodingPlanSignatureFeatureGateOptions {
-  cacheTtlMs?: number;
-  headers: SigningHeaders | (() => SigningHeaders);
-  now?: () => number;
-  onResult?: (result: CodingPlanSignatureFeatureGateResult) => void;
-  timeoutMs?: number;
-  transport?: ClientSigningFetch;
-  url: string | (() => string);
-}
-
-export class CodingPlanSignatureFeatureGate {
-  private readonly cacheTtlMs: number;
-  private readonly headers: CodingPlanSignatureFeatureGateOptions["headers"];
-  private readonly now: () => number;
-  private readonly onResult?: CodingPlanSignatureFeatureGateOptions["onResult"];
-  private readonly timeoutMs: number;
-  private readonly transport?: ClientSigningFetch;
-  private readonly url: CodingPlanSignatureFeatureGateOptions["url"];
-  private requestPromise?: Promise<CodingPlanSignatureFeatureGateResult>;
-  private snapshot?: { enabled: boolean; expiresAt: number };
-
-  constructor(options: CodingPlanSignatureFeatureGateOptions) {
-    this.cacheTtlMs = options.cacheTtlMs ?? FEATURE_GATE_CACHE_TTL_MS;
-    this.headers = options.headers;
-    this.now = options.now ?? Date.now;
-    this.onResult = options.onResult;
-    this.timeoutMs = options.timeoutMs ?? FEATURE_GATE_TIMEOUT_MS;
-    this.transport = options.transport;
-    this.url = options.url;
-  }
-
-  async isEnabled(signal?: AbortSignal): Promise<boolean> {
-    if (this.snapshot && this.snapshot.expiresAt > this.now()) {
-      return this.snapshot.enabled;
-    }
-    if (!this.requestPromise) {
-      const pending = this.fetchFeatureResult().then((result) => {
-        this.report(result);
-        return result;
-      });
-      this.requestPromise = pending;
-      const clearRequest = (): void => {
-        if (this.requestPromise === pending) {
-          this.requestPromise = undefined;
-        }
-      };
-      pending.then(clearRequest, clearRequest);
-    }
-    const result = signal
-      ? await waitForSigningPromiseOrAbort(this.requestPromise, signal)
-      : await this.requestPromise;
-    if (result.cacheable) {
-      this.snapshot = { enabled: result.enabled, expiresAt: this.now() + this.cacheTtlMs };
-    } else if (!this.snapshot) {
-      // 失败负缓存：只在没有更新结论时垫一个短 TTL 的关闭态，避免故障期逐请求重查。
-      this.snapshot = { enabled: false, expiresAt: this.now() + FEATURE_GATE_FAILURE_TTL_MS };
-    }
-    return result.enabled;
-  }
-
-  private report(result: CodingPlanSignatureFeatureGateResult): void {
-    try {
-      this.onResult?.(result);
-    } catch {
-      // 观测回调失败不影响 gate 本身。
-    }
-  }
-
-  private async fetchFeatureResult(): Promise<CodingPlanSignatureFeatureGateResult> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    let response: Response | undefined;
-    try {
-      response = await this.transport!(
-        typeof this.url === "function" ? this.url() : this.url,
-        {
-          headers: typeof this.headers === "function" ? this.headers() : this.headers,
-          method: "GET",
-          redirect: "manual",
-          signal: controller.signal,
-        },
-      );
-      if (!response.ok) {
-        return { cacheable: false, enabled: false, failure: "http_status", httpStatus: response.status };
-      }
-      const payload = asRecord(await response.json());
-      if (payload?.code !== 0) {
-        return { cacheable: false, enabled: false, failure: "business_code", httpStatus: response.status };
-      }
-      const data = asRecord(payload.data);
-      if (!data || !Object.prototype.hasOwnProperty.call(data, "codingPlanSignature")) {
-        return { cacheable: true, enabled: false, httpStatus: response.status };
-      }
-      return {
-        cacheable: true,
-        enabled: asRecord(data.codingPlanSignature)?.enable === true,
-        httpStatus: response.status,
-      };
-    } catch {
-      return {
-        cacheable: false,
-        enabled: false,
-        failure: response ? "malformed" : controller.signal.aborted ? "timeout" : "network",
-        ...(response ? { httpStatus: response.status } : {}),
-      };
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-}
-
-// ------------------------------------------------------------
 // 私钥状态与缓存
 // ------------------------------------------------------------
 
@@ -347,52 +217,12 @@ export class ClientRequestSigningKeyCache {
 }
 
 /**
- * 跨 Execution 共享的签名状态：feature gate 与私钥都绑定 API Key，
- * 多个 provider / 多次 Execution 复用同一份，避免重复握手与 gate 查询。
+ * 跨 Execution 共享的签名状态：私钥绑定 API Key，
+ * 多个 provider / 多次 Execution 复用同一份，避免重复握手。
  * 宿主可选注入；缺省时各 Execution 独立缓存。
  */
 export class AiSdkClientRequestSigningState {
   readonly keyCache = new ClientRequestSigningKeyCache();
-  private readonly featureGates = new Map<string, Map<string, CodingPlanSignatureFeatureGate>>();
-
-  resolveFeatureGate(input: {
-    apiKey: string;
-    create: () => CodingPlanSignatureFeatureGate;
-    scopeKey: string;
-  }): CodingPlanSignatureFeatureGate {
-    let byScope = this.featureGates.get(input.apiKey);
-    if (!byScope) {
-      byScope = new Map();
-      this.featureGates.set(input.apiKey, byScope);
-    }
-    const cached = byScope.get(input.scopeKey);
-    if (cached) {
-      return cached;
-    }
-    const gate = input.create();
-    byScope.set(input.scopeKey, gate);
-    return gate;
-  }
-}
-
-export function clientRequestSigningFeatureScopeKey(input: {
-  configUrl: string | (() => string);
-  headers: SigningHeaders | (() => SigningHeaders);
-  network: { caCertFile?: string; httpProxy?: string; noProxy?: string };
-}): string {
-  // 函数型取值先归一化再参与序列化，否则 JSON.stringify 会静默丢弃函数，
-  // 不同配置折叠成同一 scope key、复用错误的 gate。
-  const configUrl = typeof input.configUrl === "function" ? input.configUrl() : input.configUrl;
-  const headers = typeof input.headers === "function" ? input.headers() : input.headers;
-  return JSON.stringify({
-    configUrl,
-    headers: Object.entries(headers).sort(([left], [right]) => left.localeCompare(right)),
-    network: {
-      caCertFile: input.network.caCertFile,
-      httpProxy: input.network.httpProxy,
-      noProxy: input.network.noProxy,
-    },
-  });
 }
 
 // ------------------------------------------------------------
@@ -546,7 +376,6 @@ export class ClientRequestSigningSigner {
   private credential?: ParsedClientSigningCredential;
   private readonly businessOrigin: string;
   private readonly handshakeUrl: string;
-  private readonly isEnabled: (apiKey: string, signal?: AbortSignal) => Promise<boolean>;
   private readonly keyState: ClientRequestSigningKeyState;
   private readonly ownsKeyState: boolean;
   private readonly transport: ClientSigningFetch;
@@ -562,7 +391,6 @@ export class ClientRequestSigningSigner {
     transport: ClientSigningFetch,
     options: {
       allowInsecureHttp?: boolean;
-      isEnabled?: (apiKey: string, signal?: AbortSignal) => Promise<boolean>;
       keyCache?: ClientRequestSigningKeyCache;
       observer?: (input: ClientSigningObserverInput) => void;
     },
@@ -572,7 +400,6 @@ export class ClientRequestSigningSigner {
     this.clientVersion = config.clientVersion?.trim() || fallbackClientVersion;
     this.handshakeUrl = resolveHandshakeUrl(config.baseURL, options.allowInsecureHttp ?? false);
     this.businessOrigin = new URL(this.handshakeUrl).origin;
-    this.isEnabled = options.isEnabled ?? (async () => false);
     this.keyState =
       options.keyCache?.resolve(this.apiKey, this.handshakeUrl) ??
       createClientRequestSigningKeyState();
@@ -628,17 +455,10 @@ export class ClientRequestSigningSigner {
       if (this.bypassSigning) {
         return await this.sendUnsigned(request, "bypass");
       }
-      try {
-        if (!(await this.isEnabled(this.apiKey, request.signal))) {
-          return await this.sendUnsigned(request, "feature_gate_disabled");
-        }
-      } catch (error) {
-        if (request.signal?.aborted) throw error;
-        return await this.sendUnsigned(request, "feature_gate_unavailable");
-      }
-      // 凭据不是 id.secret 形态时降级为未签名发送。发行版此处 fail-closed，
+      // 凭据不是可签名形态时降级为未签名发送。发行版此处 fail-closed，
       // 但开源版允许在官方域上配置自定义 provider + 普通 sk- Key（按量 API），
-      // 硬失败会破坏既有可用配置；Coding Plan 凭据恒为 id.secret，不受影响。
+      // 硬失败会破坏既有可用配置；账号型 Coding Plan 凭据为 project_access JWT 或
+      // id.secret，均可解析，不受影响。
       if (!parseClientSigningCredential(this.apiKey)) {
         return await this.sendUnsigned(request, "invalid_credential");
       }
@@ -839,7 +659,12 @@ export class ClientRequestSigningSigner {
       let response: Response;
       try {
         response = await this.transport(this.handshakeUrl, {
-          body: JSON.stringify({ apiKey: credential.credential, nonce, sig: handshakeSignature, ts }),
+          body: JSON.stringify({
+            [credential.handshakeField]: credential.credential,
+            nonce,
+            sig: handshakeSignature,
+            ts,
+          }),
           headers: { Authorization: credential.credential, "Content-Type": "application/json" },
           method: "POST",
           redirect: "manual",
@@ -910,7 +735,10 @@ export class ClientRequestSigningSigner {
     if (this.credential) return this.credential;
     const credential = parseClientSigningCredential(this.apiKey);
     if (!credential) {
-      throw signingError("invalid-config", "Client signing credential must contain one separator.");
+      throw signingError(
+        "invalid-config",
+        "Client signing credential must be a project_access JWT or an id.secret value.",
+      );
     }
     this.credential = credential;
     return credential;
@@ -929,18 +757,15 @@ export class ClientRequestSigningManager {
     }
   >();
   private readonly allowInsecureHttp: boolean;
-  private readonly isEnabled: (apiKey: string, signal?: AbortSignal) => Promise<boolean>;
   private readonly keyCache?: ClientRequestSigningKeyCache;
   private readonly observer?: (input: ClientSigningObserverInput) => void;
 
   constructor(options: {
     allowInsecureHttp?: boolean;
-    isEnabled?: (apiKey: string, signal?: AbortSignal) => Promise<boolean>;
     keyCache?: ClientRequestSigningKeyCache;
     observer?: (input: ClientSigningObserverInput) => void;
   } = {}) {
     this.allowInsecureHttp = options.allowInsecureHttp ?? false;
-    this.isEnabled = options.isEnabled ?? (async () => false);
     this.keyCache = options.keyCache;
     this.observer = options.observer;
   }
@@ -984,7 +809,6 @@ export class ClientRequestSigningManager {
       transport,
       {
         allowInsecureHttp: this.allowInsecureHttp,
-        isEnabled: this.isEnabled,
         keyCache: this.keyCache,
         observer: this.observer,
       },
